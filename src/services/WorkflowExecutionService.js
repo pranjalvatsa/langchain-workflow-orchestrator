@@ -273,13 +273,40 @@ class WorkflowExecutionService {
       // Process template variables in task configuration
       const processedTaskConfig = this.processTemplateVariables(taskConfig, context);
       
+      // Enhanced task configuration with escalation options
+      const enhancedTaskConfig = {
+        ...processedTaskConfig,
+        data: {
+          ...processedTaskConfig.data,
+          // Add escalation options to the human reviewer
+          availableActions: [
+            {
+              id: 'respond',
+              label: 'Send Response to Customer',
+              description: 'Provide a response directly to the customer'
+            },
+            {
+              id: 'escalate', 
+              label: 'Escalate to Human Agent',
+              description: 'Transfer this call to a live human agent'
+            }
+          ],
+          callDeflectionContext: {
+            callId: context.callId,
+            transcription: context.transcription,
+            callerInfo: context.callerInfo,
+            classification: context.intent_classification_output
+          }
+        }
+      };
+
       // Step 1: Create task in Noam app
       const taskCreationInput = {
-        taskTitle: processedTaskConfig.taskTitle,
-        taskDescription: processedTaskConfig.taskDescription,
-        taskData: processedTaskConfig.data,
-        priority: processedTaskConfig.priority || 'medium',
-        assignee: processedTaskConfig.assignee || humanReviewConfig.assignee,
+        taskTitle: enhancedTaskConfig.taskTitle,
+        taskDescription: enhancedTaskConfig.taskDescription,
+        taskData: enhancedTaskConfig.data,
+        priority: enhancedTaskConfig.priority || 'high',
+        assignee: enhancedTaskConfig.assignee,
         workflowExecutionId: executionId
       };
 
@@ -375,8 +402,24 @@ class WorkflowExecutionService {
       // Update execution status
       await this.clearExecutionWaitingStatus(executionId);
 
-      // Update context with approval result
-      activeExecution.context[`${nodeId}_approval`] = approvalResult;
+      // Update context with approval result - enhanced for call deflection
+      const enhancedApprovalResult = {
+        ...approvalResult,
+        decision: approvalResult.decision,
+        feedback: approvalResult.feedback,
+        selectedAction: approvalResult.taskData?.selectedAction || approvalResult.decision,
+        responseText: approvalResult.taskData?.responseText || approvalResult.feedback,
+        escalationReason: approvalResult.taskData?.escalationReason,
+        timestamp: new Date().toISOString()
+      };
+
+      activeExecution.context[`${nodeId}_approval`] = enhancedApprovalResult;
+      activeExecution.context[`${nodeId}_output`] = enhancedApprovalResult.selectedAction || enhancedApprovalResult.decision;
+      
+      // Add response text to context for potential use in response nodes
+      if (enhancedApprovalResult.responseText) {
+        activeExecution.context['final_response'] = enhancedApprovalResult.responseText;
+      }
       
       // Log the approval
       await this.logExecutionStep(executionId, {
@@ -384,10 +427,12 @@ class WorkflowExecutionService {
         type: 'humanReview',
         status: 'completed',
         endTime: new Date(),
-        output: approvalResult,
+        output: enhancedApprovalResult,
         metadata: {
-          decision: approvalResult.decision,
-          feedback: approvalResult.feedback
+          decision: enhancedApprovalResult.decision,
+          selectedAction: enhancedApprovalResult.selectedAction,
+          feedback: enhancedApprovalResult.feedback,
+          escalationReason: enhancedApprovalResult.escalationReason
         }
       });
 

@@ -315,6 +315,126 @@ class LangChainService {
       }
     }));
 
+    // Agent Escalation Tool
+    this.tools.set('agent_escalation', new DynamicTool({
+      name: 'agent_escalation',
+      description: 'Escalate call to available human agent',
+      func: async (input) => {
+        try {
+          const { callId, transcription, callerInfo, priority, reason } = JSON.parse(input);
+          
+          // Generate escalation ID
+          const escalationId = `ESC_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          const escalationPayload = {
+            id: escalationId,
+            callId: callId,
+            transcription: transcription,
+            callerInfo: callerInfo,
+            priority: priority || 'high',
+            reason: reason,
+            status: 'queued',
+            createdAt: new Date().toISOString(),
+            estimatedWaitTime: '5-10 minutes'
+          };
+
+          // TODO: Replace with actual agent platform API call
+          // const response = await this.callAgentPlatformAPI(escalationPayload);
+
+          return JSON.stringify({
+            success: true,
+            escalationId: escalationId,
+            queuePosition: Math.floor(Math.random() * 5) + 1,
+            estimatedWaitTime: '5-10 minutes',
+            message: 'Call escalated to human agent',
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
+    // Call Response API Tool
+    this.tools.set('call_response_api', new DynamicTool({
+      name: 'call_response_api',
+      description: 'Send response back to caller via call system',
+      func: async (input) => {
+        try {
+          const { callId, response, responseType } = JSON.parse(input);
+          
+          const responseId = `RESP_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          const responsePayload = {
+            id: responseId,
+            callId: callId,
+            response: response,
+            responseType: responseType || 'automated',
+            deliveredAt: new Date().toISOString(),
+            status: 'delivered'
+          };
+
+          // TODO: Replace with actual call system API call
+          // const result = await this.callResponseAPI(responsePayload);
+
+          return JSON.stringify({
+            success: true,
+            responseId: responseId,
+            status: 'delivered',
+            message: 'Response sent to caller',
+            callId: callId,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
+    // Call Transcription Processor Tool
+    this.tools.set('call_transcription_processor', new DynamicTool({
+      name: 'call_transcription_processor',
+      description: 'Process incoming call transcription and extract metadata',
+      func: async (input) => {
+        try {
+          const { audioUrl, callId, metadata, rawTranscription } = JSON.parse(input);
+          
+          // TODO: Integrate with transcription service (e.g., OpenAI Whisper, Google Speech-to-Text)
+          // For now, return processed transcription
+          const processedTranscription = rawTranscription || "Customer called asking about order status and delivery timeline.";
+          
+          return JSON.stringify({
+            success: true,
+            transcription: processedTranscription,
+            confidence: 0.95,
+            language: "en",
+            duration: Math.floor(Math.random() * 120) + 30, // 30-150 seconds
+            sentiment: Math.random() > 0.3 ? 'neutral' : 'frustrated',
+            urgency: Math.random() > 0.7 ? 'high' : 'medium',
+            metadata: {
+              callId: callId,
+              processedAt: new Date().toISOString(),
+              audioUrl: audioUrl
+            }
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
     this.logger.info(`Initialized ${this.tools.size} tools`);
   }
 

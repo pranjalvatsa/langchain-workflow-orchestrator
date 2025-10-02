@@ -1,0 +1,179 @@
+{
+  "name": "Call Deflection Workflow",
+  "description": "Automatically process incoming calls, classify intent, and route appropriately",
+  "category": "support",
+  "templateId": "call-deflection-v1",
+  "nodes": [
+    {
+      "id": "transcribe_node",
+      "type": "trigger",
+      "position": { "x": 100, "y": 50 },
+      "data": {
+        "triggerConfig": {
+          "triggerType": "webhook",
+          "webhookPath": "/webhook/call-transcription",
+          "expectedPayload": {
+            "callId": "string",
+            "transcription": "string",
+            "callerInfo": "object",
+            "audioUrl": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "intent_classification",
+      "type": "llm",
+      "position": { "x": 100, "y": 150 },
+      "data": {
+        "config": {
+          "prompt": "Analyze the following call transcription and classify the customer's intent. Respond with either 'RESOLVE' if this is a simple question that can be answered automatically, or 'UNCERTAIN' if it requires human review.\n\nCall Transcription: {{transcription}}\nCaller Info: {{callerInfo}}\n\nClassification:",
+          "temperature": 0.1,
+          "maxTokens": 50
+        },
+        "model": "gpt-4"
+      }
+    },
+    {
+      "id": "auto_response_agent",
+      "type": "llm",
+      "position": { "x": 50, "y": 300 },
+      "data": {
+        "config": {
+          "prompt": "You are a helpful customer service agent. Based on the call transcription and customer information, provide a helpful and accurate response to resolve the customer's inquiry.\n\nCall Transcription: {{transcription}}\nCustomer Info: {{customerData}}\nIntent: {{intent_classification_output}}\n\nResponse:",
+          "temperature": 0.7,
+          "maxTokens": 500
+        },
+        "model": "gpt-4"
+      }
+    },
+    {
+      "id": "human_review",
+      "type": "humanReview",
+      "position": { "x": 200, "y": 300 },
+      "data": {
+        "humanReviewConfig": {
+          "taskConfig": {
+            "taskTitle": "Call Review Required",
+            "taskDescription": "Please review this customer call and determine the appropriate response",
+            "data": {
+              "transcription": "{{transcription}}",
+              "callerInfo": "{{callerInfo}}",
+              "classification": "{{intent_classification_output}}",
+              "suggestedResponse": "{{auto_response_output}}"
+            }
+          },
+          "timeout": 1800000
+        }
+      }
+    },
+    {
+      "id": "escalate_to_agent",
+      "type": "tool",
+      "position": { "x": 200, "y": 450 },
+      "data": {
+        "config": {
+          "toolName": "agent_escalation",
+          "input": {
+            "callId": "{{callId}}",
+            "transcription": "{{transcription}}",
+            "callerInfo": "{{callerInfo}}",
+            "priority": "high",
+            "reason": "Human review approved escalation"
+          }
+        }
+      }
+    },
+    {
+      "id": "send_response",
+      "type": "tool",
+      "position": { "x": 100, "y": 450 },
+      "data": {
+        "config": {
+          "toolName": "call_response_api",
+          "input": {
+            "callId": "{{callId}}",
+            "response": "{{final_response}}",
+            "responseType": "automated"
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "transcribe_node",
+      "target": "intent_classification",
+      "type": "default"
+    },
+    {
+      "id": "e2",
+      "source": "intent_classification",
+      "target": "auto_response_agent",
+      "type": "conditional",
+      "condition": {
+        "type": "output_contains",
+        "value": "RESOLVE"
+      }
+    },
+    {
+      "id": "e3",
+      "source": "intent_classification", 
+      "target": "human_review",
+      "type": "conditional",
+      "condition": {
+        "type": "output_contains",
+        "value": "UNCERTAIN"
+      }
+    },
+    {
+      "id": "e4",
+      "source": "auto_response_agent",
+      "target": "send_response",
+      "type": "default"
+    },
+    {
+      "id": "e5",
+      "source": "human_review",
+      "target": "escalate_to_agent",
+      "type": "conditional",
+      "condition": {
+        "type": "output_contains",
+        "value": "escalate"
+      }
+    },
+    {
+      "id": "e6",
+      "source": "human_review",
+      "target": "send_response",
+      "type": "conditional", 
+      "condition": {
+        "type": "output_contains",
+        "value": "respond"
+      }
+    }
+  ],
+  "config": {
+    "requiredIntegrations": ["openai", "call_system", "agent_platform"],
+    "requiredPermissions": ["call_access", "agent_assignment"],
+    "estimatedExecutionTime": 30000,
+    "complexity": "intermediate"
+  },
+  "variables": [
+    {
+      "name": "classification_threshold",
+      "type": "number",
+      "description": "Confidence threshold for auto-resolution",
+      "defaultValue": 0.8,
+      "validation": { "min": 0.1, "max": 1.0 }
+    },
+    {
+      "name": "escalation_priority",
+      "type": "string", 
+      "description": "Priority level for agent escalation",
+      "defaultValue": "high",
+      "validation": { "options": ["low", "medium", "high", "urgent"] }
+    }
+  ]
+}
