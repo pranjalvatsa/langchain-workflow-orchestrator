@@ -44,48 +44,67 @@ const authService = new AuthService();
  *       409:
  *         description: User already exists
  */
-router.post('/register', userRateLimit(5), asyncHandler(async (req, res) => {
-  const { email, password, firstName, lastName, noamUserId } = req.body;
+router.post('/register', userRateLimit(5), async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, noamUserId } = req.body;
 
-  // Validate required fields
-  if (!email || !password || !firstName || !lastName) {
-    return res.status(400).json({
-      error: 'Missing required fields',
-      message: 'Email, password, first name, and last name are required'
+    // Validate required fields
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Email, password, first name, and last name are required'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        error: 'Invalid email',
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        error: 'Weak password',
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    console.log('Attempting to register user:', { email, firstName, lastName, noamUserId });
+
+    const result = await authService.register({
+      email,
+      password,
+      firstName,
+      lastName,
+      noamUserId
+    });
+
+    console.log('Registration successful:', result);
+
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Registration error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: 'Registration failed',
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
-
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({
-      error: 'Invalid email',
-      message: 'Please provide a valid email address'
-    });
-  }
-
-  // Validate password strength
-  if (password.length < 8) {
-    return res.status(400).json({
-      error: 'Weak password',
-      message: 'Password must be at least 8 characters long'
-    });
-  }
-
-  const result = await authService.register({
-    email,
-    password,
-    firstName,
-    lastName,
-    noamUserId
-  });
-
-  res.status(201).json({
-    success: true,
-    message: 'User registered successfully',
-    data: result
-  });
-}));
+});
 
 /**
  * @swagger
