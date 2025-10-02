@@ -435,7 +435,161 @@ class LangChainService {
       }
     }));
 
+    // Metrics Fetcher Tool (for Insights workflow)
+    this.tools.set('metrics_fetcher', new DynamicTool({
+      name: 'metrics_fetcher',
+      description: 'Fetch metrics and data from various sources for analysis',
+      func: async (input) => {
+        try {
+          const { source, timeRange, metrics } = JSON.parse(input);
+          
+          // Mock metrics data - replace with actual data source integrations
+          const mockMetrics = {
+            source: source,
+            timeRange: timeRange,
+            data: {
+              totalUsers: Math.floor(Math.random() * 10000) + 1000,
+              activeUsers: Math.floor(Math.random() * 5000) + 500,
+              revenue: Math.floor(Math.random() * 100000) + 10000,
+              conversions: Math.floor(Math.random() * 1000) + 100,
+              pageViews: Math.floor(Math.random() * 50000) + 5000,
+              bounceRate: (Math.random() * 0.5 + 0.2).toFixed(2),
+              avgSessionDuration: Math.floor(Math.random() * 300) + 60
+            },
+            trends: {
+              usersGrowth: (Math.random() * 0.4 - 0.2).toFixed(3), // -20% to +20%
+              revenueGrowth: (Math.random() * 0.6 - 0.3).toFixed(3), // -30% to +30%
+              conversionGrowth: (Math.random() * 0.8 - 0.4).toFixed(3)
+            },
+            timestamp: new Date().toISOString()
+          };
+
+          // TODO: Replace with actual integrations
+          // - Google Analytics API
+          // - Database queries
+          // - Third-party APIs
+          // - Internal metrics systems
+
+          return JSON.stringify({
+            success: true,
+            metrics: mockMetrics,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
+    // Report Publisher Tool
+    this.tools.set('report_publisher', new DynamicTool({
+      name: 'report_publisher',
+      description: 'Publish reports to various channels (email, Slack, dashboard, etc.)',
+      func: async (input) => {
+        try {
+          const { report, channels, recipients, format } = JSON.parse(input);
+          
+          const publishResults = [];
+          
+          for (const channel of channels || ['email']) {
+            const result = {
+              channel: channel,
+              status: 'published',
+              timestamp: new Date().toISOString(),
+              recipients: recipients || ['admin@company.com']
+            };
+            
+            // TODO: Replace with actual publishing logic
+            switch (channel) {
+              case 'email':
+                // result.messageId = await sendEmailReport(report, recipients);
+                result.messageId = `EMAIL_${Date.now()}`;
+                break;
+              case 'slack':
+                // result.messageId = await sendSlackReport(report, recipients);
+                result.messageId = `SLACK_${Date.now()}`;
+                break;
+              case 'dashboard':
+                // result.dashboardUrl = await publishToDashboard(report);
+                result.dashboardUrl = `https://dashboard.company.com/reports/${Date.now()}`;
+                break;
+              default:
+                result.status = 'unsupported_channel';
+            }
+            
+            publishResults.push(result);
+          }
+
+          return JSON.stringify({
+            success: true,
+            published: publishResults,
+            reportId: `RPT_${Date.now()}`,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
+    // Scheduler Tool
+    this.tools.set('scheduler', new DynamicTool({
+      name: 'scheduler',
+      description: 'Schedule workflows to run at specific times or intervals',
+      func: async (input) => {
+        try {
+          const { workflowId, schedule, timezone = 'UTC' } = JSON.parse(input);
+          
+          const scheduleId = `SCHED_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // TODO: Integrate with actual scheduling system (cron, node-schedule, etc.)
+          const scheduledTask = {
+            id: scheduleId,
+            workflowId: workflowId,
+            schedule: schedule,
+            timezone: timezone,
+            status: 'scheduled',
+            nextRun: this.calculateNextRun(schedule),
+            createdAt: new Date().toISOString()
+          };
+
+          return JSON.stringify({
+            success: true,
+            schedule: scheduledTask,
+            message: `Workflow ${workflowId} scheduled: ${schedule}`,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          return JSON.stringify({
+            error: error.message,
+            success: false,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+    }));
+
     this.logger.info(`Initialized ${this.tools.size} tools`);
+  }
+
+  calculateNextRun(schedule) {
+    // Simple cron parser - replace with proper cron library in production
+    if (schedule === 'daily@02:00') {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(2, 0, 0, 0);
+      return tomorrow.toISOString();
+    }
+    // Add more schedule patterns as needed
+    return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // Default to 24 hours
   }
 
   async createPromptTemplate(template, inputVariables) {

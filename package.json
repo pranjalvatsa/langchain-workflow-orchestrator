@@ -9,7 +9,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "seed": "node src/scripts/seedDatabase.js",
-    "migrate": "node src/scripts/migrate.js"
+    "migrate": "node src/scripts/migrate.js",
+    "import-call-deflection": "node import-call-deflection.js",
+    "test-call-deflection": "node test-call-deflection.js"
   },
   "dependencies": {
     "@langchain/anthropic": "^0.3.3",

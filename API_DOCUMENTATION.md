@@ -1,31 +1,52 @@
-# 🚀 LangChain Workflow Orchestrator API Documentation
+# Universal Workflow Engine - API Reference
 
-**Base URL:** `https://langchain-workflow-orchestrator.onrender.com`
+Complete API documentation for the LangChain Workflow Orchestrator Universal Engine.
 
-## 📋 Table of Contents
-1. [Authentication](#authentication)
-2. [Customer Offer Workflow](#customer-offer-workflow)
-3. [Workflow Status & Monitoring](#workflow-status--monitoring)
-4. [Webhooks](#webhooks)
-5. [Testing Endpoints](#testing-endpoints)
-6. [Error Handling](#error-handling)
-7. [Integration Examples](#integration-examples)
-
----
+## 🌐 Base URL
+```
+Production: https://your-domain.com/api
+Development: http://localhost:8000/api
+```
 
 ## 🔐 Authentication
 
-### Register User
+All protected endpoints require JWT token in the Authorization header:
 ```http
-POST /api/auth/register
+Authorization: Bearer <your-jwt-token>
+```
+
+### Obtain Token
+```http
+POST /auth/login
 Content-Type: application/json
 
 {
-  "email": "user@noamapp.com",
-  "password": "securePassword123",
-  "firstName": "John",
-  "lastName": "Doe",
-  "noamUserId": "noam_user_123"
+  "email": "user@example.com",
+  "password": "password"
+}
+```
+
+---
+
+## 🌟 Universal Workflow Engine
+
+### Execute Any Workflow
+Execute any workflow template by its ID.
+
+```http
+POST /universal/workflows/execute
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "templateId": "string (required)",
+  "workflowId": "string (optional - alternative to templateId)",
+  "input": "object (optional)",
+  "variables": "object (optional)",
+  "metadata": "object (optional)"
 }
 ```
 
@@ -33,21 +54,331 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "message": "User registered successfully",
+  "message": "Workflow execution started",
   "data": {
-    "user": {
-      "id": "user_id",
-      "email": "user@noamapp.com",
-      "firstName": "John",
-      "lastName": "Doe"
-    },
-    "tokens": {
-      "accessToken": "jwt_access_token",
-      "refreshToken": "jwt_refresh_token"
+    "executionId": "exec-abc123",
+    "workflowId": "workflow-def456", 
+    "workflowName": "Call Deflection Automation",
+    "templateId": "call-deflection-v1",
+    "status": "started",
+    "input": {
+      "callTranscript": "Customer complaint"
     }
   }
 }
 ```
+
+**Examples:**
+```bash
+# Call Deflection
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "call-deflection-v1",
+    "input": {
+      "callTranscript": "Customer wants to cancel subscription",
+      "customerPhone": "+1234567890"
+    }
+  }'
+
+# Business Insights
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "insights-analytics-v1",
+    "input": {
+      "reportType": "daily",
+      "timeRange": "last_24h",
+      "recipients": ["team@company.com"]
+    }
+  }'
+```
+
+---
+
+### Schedule Any Workflow
+Schedule any workflow to run at specific times or intervals.
+
+```http
+POST /universal/workflows/schedule
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "templateId": "string (required)",
+  "workflowId": "string (optional)",
+  "schedule": "string (required)",
+  "input": "object (optional)",
+  "timezone": "string (optional, default: UTC)",
+  "enabled": "boolean (optional, default: true)"
+}
+```
+
+**Schedule Formats:**
+- `"daily@09:00"` - Every day at 9 AM
+- `"weekly@monday@14:30"` - Every Monday at 2:30 PM
+- `"monthly@1@12:00"` - 1st of every month at noon
+- `"*/15 * * * *"` - Every 15 minutes (cron format)
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/schedule \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "insights-analytics-v1",
+    "schedule": "daily@09:00",
+    "input": {
+      "reportType": "daily",
+      "format": "pdf"
+    },
+    "timezone": "America/New_York"
+  }'
+```
+
+---
+
+### Trigger Workflows by Event
+Trigger workflows based on event types (universal webhook system).
+
+```http
+POST /universal/workflows/trigger
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "eventType": "string (required)",
+  "data": "object (optional)",
+  "source": "string (optional)"
+}
+```
+
+**Common Event Types:**
+- `call_transcription` - Phone call completed
+- `new_customer_signup` - Customer registered
+- `scheduled_report` - Time-based trigger
+- `data_request` - Manual data analysis request
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/trigger \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "call_transcription",
+    "data": {
+      "transcript": "Customer complaint about billing",
+      "phoneNumber": "+1234567890",
+      "callId": "call-789"
+    },
+    "source": "phone_system"
+  }'
+```
+
+---
+
+### Get Available Tools
+List all available tools in the Universal Engine.
+
+```http
+GET /universal/tools
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Found 14 available tools",
+  "data": {
+    "tools": [
+      {
+        "name": "calculator",
+        "description": "Mathematical expressions and calculations",
+        "type": "Tool"
+      },
+      {
+        "name": "search",
+        "description": "Web search for current information",
+        "type": "Tool"
+      },
+      {
+        "name": "api_caller",
+        "description": "Make HTTP requests to external APIs",
+        "type": "Tool"
+      }
+    ],
+    "totalCount": 14
+  }
+}
+```
+
+---
+
+## 📋 Template Management
+
+### List Templates
+Get all available workflow templates with filtering and pagination.
+
+```http
+GET /templates
+```
+
+**Query Parameters:**
+- `category` - Filter by category (analytics, customer-service, etc.)
+- `tags` - Comma-separated tags
+- `search` - Search in name/description
+- `status` - published, draft, archived
+- `public` - true/false for public templates
+- `limit` - Number of results (default: 20)
+- `offset` - Pagination offset (default: 0)
+
+**Example:**
+```bash
+curl "http://localhost:8000/api/templates?category=analytics&public=true&limit=10"
+```
+
+---
+
+### Export for Noam App
+Export templates in Noam-compatible format for visual editing.
+
+```http
+POST /templates/import/noam
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "templateIds": ["string[]"] (optional),
+  "category": "string (optional)",
+  "includePrivate": "boolean (optional, default: false)"
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/templates/import/noam \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateIds": ["call-deflection-v1", "insights-analytics-v1"],
+    "includePrivate": false
+  }'
+```
+
+---
+
+## 🎯 Pre-Built Workflow Examples
+
+### Call Deflection Workflow
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "call-deflection-v1",
+    "input": {
+      "callTranscript": "Customer is frustrated about billing charges",
+      "customerPhone": "+1234567890"
+    }
+  }'
+```
+
+### Business Insights Workflow
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "insights-analytics-v1",
+    "input": {
+      "reportType": "daily",
+      "timeRange": "last_24h",
+      "recipients": ["team@company.com"]
+    }
+  }'
+```
+
+### Customer Onboarding Workflow
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateId": "customer-onboarding-v1",
+    "input": {
+      "email": "newcustomer@company.com",
+      "name": "New Customer",
+      "accountType": "premium"
+    }
+  }'
+```
+
+---
+
+## 🔐 Authentication
+
+### Login
+```http
+POST /auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "password"
+}
+```
+
+### Register
+```http
+POST /auth/register
+Content-Type: application/json
+
+{
+  "email": "newuser@example.com",
+  "password": "securepassword",
+  "name": "New User",
+  "noamAccountId": "noam-account-123",
+  "noamUserId": "noam-user-456"
+}
+```
+
+---
+
+## ⚠️ Error Responses
+
+All endpoints return consistent error responses:
+
+```json
+{
+  "success": false,
+  "error": "Error type",
+  "message": "Human-readable error message"
+}
+```
+
+**HTTP Status Codes:**
+- `200` - Success
+- `201` - Created
+- `400` - Bad Request
+- `401` - Unauthorized
+- `404` - Not Found
+- `500` - Internal Server Error
+
+---
+
+## 🚀 Universal Engine Benefits
+
+- ✅ **3 Endpoints Handle Everything** - No workflow-specific endpoints needed
+- ✅ **14 Universal Tools** - Available to all workflows
+- ✅ **Configuration-Driven** - Add workflows via JSON templates
+- ✅ **Noam Integration** - Visual editing with reverse engineering
+- ✅ **Scalable** - Unlimited workflows without code changes
+
+This Universal Workflow Engine revolutionizes workflow automation by eliminating the need for custom endpoints per workflow!
 
 ### Login
 ```http

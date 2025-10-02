@@ -149,14 +149,9 @@ connectDB();
 
 // Import routes
 const authRoutes = require('./src/routes/auth');
-const workflowRoutes = require('./src/routes/workflows');
 const executionRoutes = require('./src/routes/executions');
 const userRoutes = require('./src/routes/users');
 const webhookRoutes = require('./src/routes/webhooks');
-const { router: customerWorkflowRoutes, initializeServices } = require('./src/routes/customerWorkflows');
-
-// Initialize services with Socket.IO
-initializeServices(io);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -170,11 +165,11 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/workflows', workflowRoutes);
 app.use('/api/executions', executionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/customer-workflows', customerWorkflowRoutes);
+app.use('/api/universal', require('./src/routes/universal'));
+app.use('/api/templates', require('./src/routes/templates'));
 
 // Legacy endpoints for backward compatibility
 app.post('/api/workflows/execute', async (req, res) => {

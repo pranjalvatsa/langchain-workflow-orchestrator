@@ -459,6 +459,106 @@ class WorkflowService {
       throw error;
     }
   }
+
+  // Universal workflow engine methods
+  async getWorkflowById(workflowId) {
+    try {
+      const workflow = await Workflow.findById(workflowId);
+      return workflow;
+    } catch (error) {
+      this.logger.error('Error fetching workflow by ID:', error);
+      throw error;
+    }
+  }
+
+  async getWorkflowByTemplateId(templateId) {
+    try {
+      const workflow = await Workflow.findOne({ templateId: templateId });
+      return workflow;
+    } catch (error) {
+      this.logger.error('Error fetching workflow by template ID:', error);
+      throw error;
+    }
+  }
+
+  async getWorkflowsByTriggerType(eventType) {
+    try {
+      // Find workflows that have trigger configurations for this event type
+      const workflows = await Workflow.find({
+        'configuration.triggers': {
+          $elemMatch: { eventType: eventType, enabled: true }
+        },
+        status: 'published'
+      });
+      
+      return workflows;
+    } catch (error) {
+      this.logger.error('Error fetching workflows by trigger type:', error);
+      throw error;
+    }
+  }
+
+  async createWorkflowFromTemplate(templateData, userId) {
+    try {
+      const {
+        templateId,
+        name,
+        description,
+        nodes = [],
+        edges = [],
+        triggers = [],
+        configuration = {},
+        category = 'template'
+      } = templateData;
+
+      // Validate workflow structure
+      const validation = await this.validateWorkflow({ nodes, edges });
+      if (!validation.valid) {
+        throw new Error(`Template validation failed: ${validation.errors.join(', ')}`);
+      }
+
+      // Create workflow from template
+      const workflow = new Workflow({
+        templateId: templateId,
+        name: name,
+        description: description,
+        ownerId: userId,
+        nodes: this.processNodes(nodes),
+        edges: this.processEdges(edges),
+        configuration: {
+          maxConcurrentExecutions: configuration.maxConcurrentExecutions || 5,
+          timeoutMinutes: configuration.timeoutMinutes || 30,
+          retryPolicy: configuration.retryPolicy || 'exponential',
+          triggers: triggers.map(trigger => ({
+            eventType: trigger.eventType,
+            enabled: trigger.enabled !== false,
+            filter: trigger.filter || {},
+            priority: trigger.priority || 'normal'
+          })),
+          ...configuration
+        },
+        metadata: {
+          tags: templateData.tags || [],
+          category: category,
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+          complexity: this.calculateComplexity(nodes, edges),
+          isTemplate: true,
+          templateVersion: templateData.version || '1.0.0'
+        },
+        version: templateData.version || '1.0.0',
+        status: 'published'
+      });
+
+      await workflow.save();
+
+      this.logger.info(`Workflow created from template ${templateId}: ${workflow._id} by user ${userId}`);
+      return workflow;
+    } catch (error) {
+      this.logger.error('Error creating workflow from template:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = WorkflowService;
