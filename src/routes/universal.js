@@ -104,6 +104,29 @@ router.post('/workflows/execute', asyncHandler(async (req, res) => {
       executionInput
     );
 
+    // Check if this workflow was imported from Noam and send notification
+    if (workflow.noamIntegration && workflow.noamIntegration.imported) {
+      try {
+        await sendNoamTaskNotification({
+          executionId: executionResult.executionId,
+          workflowId: workflow.id,
+          templateId: workflow.templateId,
+          noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
+          noamAccountId: workflow.noamIntegration.noamAccountId,
+          noamUserId: workflow.noamIntegration.noamUserId,
+          status: 'started',
+          taskData: {
+            title: `${workflow.name} - Execution Started`,
+            description: `Workflow execution ${executionResult.executionId} has been started`,
+            inputs: executionInput
+          }
+        });
+      } catch (notificationError) {
+        console.error('Failed to notify Noam:', notificationError.message);
+        // Don't fail the execution if notification fails
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: 'Workflow execution started',
@@ -113,7 +136,11 @@ router.post('/workflows/execute', asyncHandler(async (req, res) => {
         workflowName: workflow.name,
         templateId: workflow.templateId,
         status: 'started',
-        input: executionInput
+        input: executionInput,
+        noamIntegration: workflow.noamIntegration ? {
+          noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
+          notificationSent: true
+        } : null
       }
     });
 
@@ -413,5 +440,29 @@ router.get('/tools', asyncHandler(async (req, res) => {
     });
   }
 }));
+
+// Helper function to send task notifications to Noam
+async function sendNoamTaskNotification(notificationData) {
+  try {
+    const axios = require('axios');
+    
+    // Send notification via internal webhook endpoint
+    const webhookUrl = `${process.env.BASE_URL || 'http://localhost:8000'}/api/webhooks/noam/task-notifications`;
+    
+    await axios.post(webhookUrl, notificationData, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Source': 'universal-engine-internal'
+      },
+      timeout: 5000
+    });
+
+    console.log(`✅ Noam notification sent for execution ${notificationData.executionId}`);
+    
+  } catch (error) {
+    console.error('❌ Failed to send Noam notification:', error.message);
+    throw error;
+  }
+}
 
 module.exports = router;

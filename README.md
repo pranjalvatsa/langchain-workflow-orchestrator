@@ -386,7 +386,133 @@ Response:
 }
 ```
 
-## 🎯 **Pre-Built Workflow Examples**
+## 🔄 **Bi-Directional Noam Integration**
+
+The Universal Workflow Engine supports **full bi-directional integration** with Noam's ReactFlow canvas:
+
+### 📤 **Export TO Noam (Visual Editing)**
+```bash
+# Export existing workflows to Noam for visual editing
+curl -X POST http://localhost:8000/api/templates/import/noam \
+  -H "Content-Type: application/json" \
+  -d '{
+    "templateIds": ["call-deflection-v1", "insights-analytics-v1"],
+    "includePrivate": false
+  }'
+```
+
+### 📥 **Import FROM Noam (ReactFlow → Universal Engine)**
+```bash
+# Import workflow created in Noam ReactFlow canvas
+curl -X POST http://localhost:8000/api/templates/import/reactflow \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow": {
+      "name": "Customer Support Automation",
+      "description": "Workflow created in Noam canvas",
+      "category": "customer-service",
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "input",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "New Support Ticket",
+            "parameters": {
+              "ticketId": "string",
+              "customerEmail": "string",
+              "issue": "string"
+            }
+          }
+        },
+        {
+          "id": "llm-1", 
+          "type": "api",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "Analyze Issue",
+            "tool": "llm_chat",
+            "parameters": {
+              "model": "gpt-3.5-turbo",
+              "prompt": "Analyze this support ticket: {{issue}}"
+            }
+          }
+        },
+        {
+          "id": "human-1",
+          "type": "human", 
+          "position": { "x": 500, "y": 100 },
+          "data": {
+            "label": "Human Review",
+            "tool": "human_review",
+            "parameters": {
+              "assignee": "support-team@company.com",
+              "timeout": 86400000
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "trigger-1",
+          "target": "llm-1"
+        },
+        {
+          "id": "e2-3", 
+          "source": "llm-1",
+          "target": "human-1"
+        }
+      ]
+    },
+    "noamMetadata": {
+      "noamWorkflowId": "noam-workflow-123",
+      "noamUserId": "user-456", 
+      "noamAccountId": "account-789"
+    }
+  }'
+```
+
+### 🔔 **Real-Time Task Notifications**
+When imported workflows execute, Noam automatically receives task notifications:
+
+```json
+{
+  "timestamp": "2025-10-02T17:46:00Z",
+  "source": "universal-workflow-engine",
+  "execution": {
+    "executionId": "exec-abc123",
+    "noamWorkflowId": "noam-workflow-123", 
+    "status": "running"
+  },
+  "task": {
+    "title": "Customer Support Automation - Running",
+    "description": "Workflow execution in progress",
+    "actions": [
+      {
+        "id": "view-details",
+        "label": "View Details", 
+        "url": "/workflows/workflow-def456/executions/exec-abc123"
+      },
+      {
+        "id": "pause-workflow",
+        "label": "Pause",
+        "endpoint": "/api/universal/workflows/exec-abc123/pause"
+      }
+    ]
+  }
+}
+```
+
+### 🎯 **Complete Integration Workflow**
+
+1. **Create in Noam** → Drag & drop nodes in ReactFlow canvas
+2. **Push to Universal Engine** → `POST /api/templates/import/reactflow` 
+3. **Execute on Universal Engine** → `POST /api/universal/workflows/execute`
+4. **Real-time Updates to Noam** → Automatic task notifications via webhooks
+5. **Visual Monitoring in Noam** → See execution progress, pause/resume, view results
+
+---
 
 ### **📞 Call Deflection Workflow**
 

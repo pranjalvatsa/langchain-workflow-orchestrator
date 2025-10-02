@@ -274,6 +274,209 @@ curl -X POST http://localhost:8000/api/templates/import/noam \
 
 ---
 
+### Import from Noam App
+Import ReactFlow workflows created in Noam canvas into Universal Engine.
+
+```http
+POST /templates/import/reactflow
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "workflow": {
+    "name": "string (required)",
+    "description": "string (optional)",
+    "category": "string (optional)",
+    "nodes": "array (required)",
+    "edges": "array (required)"
+  },
+  "noamMetadata": {
+    "noamWorkflowId": "string (required)",
+    "noamUserId": "string (optional)",
+    "noamAccountId": "string (optional)"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Workflow successfully imported from Noam",
+  "data": {
+    "templateId": "noam-import-1696270000-abc123",
+    "_id": "670d1a2b3c4d5e6f7g8h9i0j",
+    "name": "Customer Support Automation",
+    "category": "imported",
+    "executionEndpoints": {
+      "execute": "/api/universal/workflows/execute",
+      "schedule": "/api/universal/workflows/schedule",
+      "trigger": "/api/universal/workflows/trigger"
+    },
+    "sampleExecution": {
+      "templateId": "noam-import-1696270000-abc123",
+      "input": {
+        "message": "Sample input from Noam workflow",
+        "timestamp": "2025-10-02T17:46:00Z"
+      }
+    },
+    "noamIntegration": {
+      "imported": true,
+      "noamWorkflowId": "noam-workflow-123",
+      "importedAt": "2025-10-02T17:46:00Z"
+    }
+  }
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/templates/import/reactflow \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow": {
+      "name": "Customer Support Automation",
+      "description": "AI-powered support ticket routing",
+      "category": "customer-service",
+      "nodes": [
+        {
+          "id": "trigger-1",
+          "type": "input",
+          "position": { "x": 100, "y": 100 },
+          "data": {
+            "label": "New Support Ticket",
+            "parameters": {
+              "ticketId": "string",
+              "customerEmail": "string",
+              "issue": "string"
+            }
+          }
+        },
+        {
+          "id": "llm-1",
+          "type": "api",
+          "position": { "x": 300, "y": 100 },
+          "data": {
+            "label": "Analyze Issue",
+            "tool": "llm_chat",
+            "parameters": {
+              "model": "gpt-3.5-turbo",
+              "prompt": "Analyze: {{issue}}"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1-2",
+          "source": "trigger-1",
+          "target": "llm-1"
+        }
+      ]
+    },
+    "noamMetadata": {
+      "noamWorkflowId": "noam-workflow-123",
+      "noamUserId": "user-456",
+      "noamAccountId": "account-789"
+    }
+  }'
+```
+
+---
+
+## 🔔 **Noam Integration & Task Notifications**
+
+### Send Task Notifications to Noam
+Automatically sends workflow execution updates to Noam app for task management.
+
+```http
+POST /webhooks/noam/task-notifications
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "executionId": "string (required)",
+  "workflowId": "string (optional)",
+  "templateId": "string (optional)",
+  "noamWorkflowId": "string (required)",
+  "status": "started|running|completed|failed|paused",
+  "taskData": {
+    "title": "string",
+    "description": "string",
+    "priority": "low|medium|high",
+    "assignee": "string",
+    "inputs": "object",
+    "outputs": "object"
+  },
+  "noamAccountId": "string",
+  "noamUserId": "string"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Task notification processed",
+  "data": {
+    "executionId": "exec-abc123",
+    "noamWorkflowId": "noam-workflow-123",
+    "status": "running",
+    "notificationSent": true,
+    "timestamp": "2025-10-02T17:46:00Z"
+  }
+}
+```
+
+This endpoint is automatically called when executing workflows imported from Noam.
+
+---
+
+## 🎯 **Bi-Directional Integration Examples**
+
+### Complete Noam → Universal Engine → Noam Flow
+
+1. **Create in Noam ReactFlow Canvas:**
+```javascript
+// In Noam app - create workflow visually
+const workflowData = {
+  name: "Lead Qualification",
+  nodes: [...], // Created via drag-and-drop
+  edges: [...]
+};
+```
+
+2. **Push to Universal Engine:**
+```bash
+curl -X POST http://localhost:8000/api/templates/import/reactflow \
+  -d '{"workflow": workflowData, "noamMetadata": {...}}'
+```
+
+3. **Execute on Universal Engine:**
+```bash
+curl -X POST http://localhost:8000/api/universal/workflows/execute \
+  -d '{"templateId": "noam-import-123", "input": {...}}'
+```
+
+4. **Receive Task Updates in Noam:**
+```json
+{
+  "task": {
+    "title": "Lead Qualification - Running",
+    "actions": [
+      {"label": "View Details", "url": "/workflows/..."},
+      {"label": "Pause", "endpoint": "/api/universal/workflows/.../pause"}
+    ]
+  }
+}
+```
+
+---
+
 ## 🎯 Pre-Built Workflow Examples
 
 ### Call Deflection Workflow

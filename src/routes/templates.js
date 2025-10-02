@@ -563,4 +563,279 @@ router.post('/save-from-universal', asyncHandler(async (req, res) => {
   }
 }));
 
+/**
+ * @swagger
+ * /api/templates/import/reactflow:
+ *   post:
+ *     summary: Import workflow from Noam ReactFlow canvas
+ *     description: Accepts ReactFlow workflow from Noam app and creates Universal Engine template
+ *     tags: [Templates]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               workflow:
+ *                 type: object
+ *                 properties:
+ *                   name:
+ *                     type: string
+ *                   description:
+ *                     type: string
+ *                   category:
+ *                     type: string
+ *                   nodes:
+ *                     type: array
+ *                   edges:
+ *                     type: array
+ *               noamMetadata:
+ *                 type: object
+ *                 properties:
+ *                   noamWorkflowId:
+ *                     type: string
+ *                   noamUserId:
+ *                     type: string
+ *                   noamAccountId:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Workflow successfully imported
+ *       400:
+ *         description: Invalid workflow format
+ */
+router.post('/import/reactflow', asyncHandler(async (req, res) => {
+  try {
+    const { workflow, noamMetadata } = req.body;
+    
+    if (!workflow || !workflow.nodes || !workflow.edges) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid workflow format',
+        message: 'Workflow must contain nodes and edges arrays'
+      });
+    }
+
+    // Generate unique template ID
+    const templateId = `noam-import-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    
+    // Convert ReactFlow format to Universal Engine format
+    const universalTemplate = {
+      templateId: templateId,
+      name: workflow.name || 'Imported from Noam',
+      description: workflow.description || 'Workflow imported from Noam ReactFlow canvas',
+      category: workflow.category || 'imported',
+      version: '1.0.0',
+      
+      // Noam integration metadata
+      noamIntegration: {
+        imported: true,
+        noamWorkflowId: noamMetadata?.noamWorkflowId,
+        noamUserId: noamMetadata?.noamUserId,
+        noamAccountId: noamMetadata?.noamAccountId,
+        importedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString()
+      },
+      
+      // Convert ReactFlow nodes to Universal Engine format
+      nodes: workflow.nodes.map(node => ({
+        id: node.id,
+        type: mapReactFlowTypeToUniversal(node.type),
+        position: node.position,
+        data: {
+          label: node.data?.label || 'Node',
+          description: node.data?.description || '',
+          
+          // Map ReactFlow tools to Universal Engine tools
+          tool: mapReactFlowToolToUniversal(node.data?.tool || node.data?.nodeType),
+          parameters: node.data?.parameters || node.data?.config || {},
+          
+          // Preserve original ReactFlow data for round-trip compatibility
+          originalReactFlowData: node.data,
+          
+          // Add Universal Engine specific configurations
+          ...(node.data?.tool && {
+            toolConfig: generateUniversalToolConfig(node.data.tool, node.data.parameters)
+          })
+        }
+      })),
+      
+      // Convert ReactFlow edges to Universal Engine format  
+      edges: workflow.edges.map(edge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type || 'default',
+        label: edge.label || '',
+        conditions: edge.data?.conditions || null
+      })),
+      
+      // Universal Engine execution configuration
+      execution: {
+        trigger: detectWorkflowTrigger(workflow.nodes),
+        timeout: 300000, // 5 minutes default
+        retryPolicy: {
+          maxRetries: 3,
+          retryDelay: 1000
+        }
+      },
+      
+      // Template metadata
+      tags: workflow.tags || ['noam-import', 'reactflow'],
+      isPublic: false, // Private by default for imported workflows
+      status: 'published',
+      createdBy: noamMetadata?.noamUserId || 'noam-import'
+    };
+
+    // Save to database
+    const savedTemplate = await WorkflowTemplate.create(universalTemplate);
+    
+    console.log(`✅ Successfully imported ReactFlow workflow: ${templateId}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Workflow successfully imported from Noam',
+      data: {
+        templateId: savedTemplate.templateId,
+        _id: savedTemplate._id,
+        name: savedTemplate.name,
+        category: savedTemplate.category,
+        
+        // Provide execution endpoints for Noam
+        executionEndpoints: {
+          execute: `/api/universal/workflows/execute`,
+          schedule: `/api/universal/workflows/schedule`,
+          trigger: `/api/universal/workflows/trigger`
+        },
+        
+        // Sample execution payload for Noam
+        sampleExecution: {
+          templateId: savedTemplate.templateId,
+          input: generateSampleInput(workflow.nodes),
+          metadata: {
+            source: 'noam-app',
+            noamWorkflowId: noamMetadata?.noamWorkflowId
+          }
+        },
+        
+        // Noam integration info
+        noamIntegration: universalTemplate.noamIntegration
+      }
+    });
+
+  } catch (error) {
+    console.error('ReactFlow import error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to import ReactFlow workflow',
+      message: error.message
+    });
+  }
+}));
+
+// Helper function to map ReactFlow node types to Universal Engine types
+function mapReactFlowTypeToUniversal(reactFlowType) {
+  const typeMapping = {
+    'input': 'trigger',
+    'default': 'task', 
+    'output': 'response',
+    'decision': 'condition',
+    'api': 'tool',
+    'llm': 'tool',
+    'human': 'humanReview',
+    'webhook': 'trigger',
+    'schedule': 'trigger'
+  };
+  
+  return typeMapping[reactFlowType] || 'task';
+}
+
+// Helper function to map ReactFlow tools to Universal Engine tools
+function mapReactFlowToolToUniversal(reactFlowTool) {
+  const toolMapping = {
+    'calculator': 'calculator',
+    'search': 'search', 
+    'api_call': 'api_caller',
+    'llm_chat': 'llm',
+    'email': 'email_sender',
+    'database': 'database_query',
+    'webhook': 'webhook_sender',
+    'human_review': 'human_review',
+    'scheduler': 'scheduler',
+    'file_processor': 'file_processor'
+  };
+  
+  return toolMapping[reactFlowTool] || 'calculator';
+}
+
+// Helper function to generate Universal Engine tool configuration
+function generateUniversalToolConfig(toolName, parameters) {
+  const baseConfig = {
+    tool: toolName,
+    parameters: parameters || {}
+  };
+  
+  // Add tool-specific default configurations
+  switch (toolName) {
+    case 'llm':
+      return {
+        ...baseConfig,
+        model: parameters?.model || 'gpt-3.5-turbo',
+        temperature: parameters?.temperature || 0.7,
+        maxTokens: parameters?.maxTokens || 1000
+      };
+      
+    case 'api_call':
+      return {
+        ...baseConfig,
+        method: parameters?.method || 'GET',
+        headers: parameters?.headers || {},
+        timeout: parameters?.timeout || 30000
+      };
+      
+    case 'human_review':
+      return {
+        ...baseConfig,
+        timeout: parameters?.timeout || 86400000, // 24 hours
+        assignee: parameters?.assignee || 'auto-assign'
+      };
+      
+    default:
+      return baseConfig;
+  }
+}
+
+// Helper function to detect workflow trigger type
+function detectWorkflowTrigger(nodes) {
+  const triggerNode = nodes.find(node => 
+    node.type === 'input' || 
+    node.data?.nodeType === 'trigger' ||
+    node.data?.tool === 'webhook'
+  );
+  
+  if (triggerNode) {
+    if (triggerNode.data?.tool === 'webhook') return 'webhook';
+    if (triggerNode.data?.schedule) return 'schedule';
+    return 'manual';
+  }
+  
+  return 'manual';
+}
+
+// Helper function to generate sample input based on workflow nodes
+function generateSampleInput(nodes) {
+  const inputNode = nodes.find(node => node.type === 'input');
+  
+  if (inputNode && inputNode.data?.parameters) {
+    return inputNode.data.parameters;
+  }
+  
+  // Generate basic sample input
+  return {
+    message: "Sample input from Noam workflow",
+    timestamp: new Date().toISOString()
+  };
+}
+
 module.exports = router;

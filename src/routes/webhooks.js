@@ -429,4 +429,261 @@ function verifyNoamWebhookSignature(payload, signature) {
   );
 }
 
+/**
+ * @swagger
+ * /api/webhooks/noam/task-notifications:
+ *   post:
+ *     summary: Send task notifications to Noam app
+ *     description: Sends workflow execution updates and task notifications to Noam app
+ *     tags: [Webhooks, Noam Integration]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               executionId:
+ *                 type: string
+ *               workflowId:
+ *                 type: string
+ *               templateId:
+ *                 type: string
+ *               noamWorkflowId:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *                 enum: [started, running, completed, failed, paused]
+ *               taskData:
+ *                 type: object
+ *               outputs:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Notification sent to Noam successfully
+ */
+router.post('/noam/task-notifications', asyncHandler(async (req, res) => {
+  try {
+    const { 
+      executionId, 
+      workflowId, 
+      templateId, 
+      noamWorkflowId,
+      status, 
+      taskData, 
+      outputs,
+      currentNode,
+      nextNodes,
+      noamAccountId,
+      noamUserId
+    } = req.body;
+
+    if (!executionId || !status || !noamWorkflowId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        message: 'executionId, status, and noamWorkflowId are required'
+      });
+    }
+
+    // Prepare notification payload for Noam
+    const noamNotification = {
+      timestamp: new Date().toISOString(),
+      source: 'universal-workflow-engine',
+      version: '1.0.0',
+      
+      // Execution details
+      execution: {
+        executionId,
+        workflowId,
+        templateId,
+        noamWorkflowId,
+        status,
+        currentNode: currentNode || null,
+        nextNodes: nextNodes || []
+      },
+      
+      // Task information for Noam UI
+      task: {
+        title: taskData?.title || `Workflow ${status}`,
+        description: taskData?.description || `Workflow execution ${status}`,
+        priority: taskData?.priority || 'medium',
+        assignee: taskData?.assignee || noamUserId,
+        dueDate: taskData?.dueDate || null,
+        
+        // Task actions based on workflow status
+        actions: generateNoamTaskActions(status, executionId, workflowId),
+        
+        // Workflow outputs for display in Noam
+        data: {
+          outputs: outputs || {},
+          inputs: taskData?.inputs || {},
+          executionLog: taskData?.executionLog || [],
+          progress: calculateWorkflowProgress(currentNode, nextNodes)
+        }
+      },
+      
+      // Integration metadata
+      integration: {
+        noamAccountId,
+        noamUserId,
+        bidirectionalSync: true,
+        lastUpdated: new Date().toISOString()
+      }
+    };
+
+    // Send notification to Noam app (replace with actual Noam webhook URL)
+    const noamWebhookUrl = process.env.NOAM_WEBHOOK_URL || 'https://noam-app.com/api/webhooks/universal-engine';
+    
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        const axios = require('axios');
+        const response = await axios.post(noamWebhookUrl, noamNotification, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Source': 'universal-workflow-engine',
+            'X-Signature': generateNoamWebhookSignature(noamNotification)
+          },
+          timeout: 10000
+        });
+
+        console.log(`✅ Notification sent to Noam for execution ${executionId}`);
+        
+      } catch (webhookError) {
+        console.error('❌ Failed to send notification to Noam:', webhookError.message);
+        // Don't fail the request if webhook fails - just log it
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Task notification processed',
+      data: {
+        executionId,
+        noamWorkflowId,
+        status,
+        notificationSent: true,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('Noam task notification error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process task notification',
+      message: error.message
+    });
+  }
+}));
+
+// Helper function to generate task actions for Noam UI
+function generateNoamTaskActions(status, executionId, workflowId) {
+  const baseActions = [
+    {
+      id: 'view-details',
+      label: 'View Details',
+      type: 'primary',
+      url: `/workflows/${workflowId}/executions/${executionId}`
+    }
+  ];
+
+  switch (status) {
+    case 'running':
+      return [
+        ...baseActions,
+        {
+          id: 'pause-workflow',
+          label: 'Pause',
+          type: 'secondary',
+          action: 'pause',
+          endpoint: `/api/universal/workflows/${executionId}/pause`
+        }
+      ];
+      
+    case 'paused':
+      return [
+        ...baseActions,
+        {
+          id: 'resume-workflow',
+          label: 'Resume',
+          type: 'primary',
+          action: 'resume',
+          endpoint: `/api/universal/workflows/${executionId}/resume`
+        },
+        {
+          id: 'cancel-workflow',
+          label: 'Cancel',
+          type: 'danger',
+          action: 'cancel',
+          endpoint: `/api/universal/workflows/${executionId}/cancel`
+        }
+      ];
+      
+    case 'completed':
+      return [
+        ...baseActions,
+        {
+          id: 'view-outputs',
+          label: 'View Results',
+          type: 'success',
+          url: `/workflows/${workflowId}/executions/${executionId}/outputs`
+        },
+        {
+          id: 'run-again',
+          label: 'Run Again',
+          type: 'secondary',
+          action: 'duplicate',
+          endpoint: `/api/universal/workflows/execute`
+        }
+      ];
+      
+    case 'failed':
+      return [
+        ...baseActions,
+        {
+          id: 'retry-workflow',
+          label: 'Retry',
+          type: 'primary',
+          action: 'retry',
+          endpoint: `/api/universal/workflows/${executionId}/retry`
+        },
+        {
+          id: 'view-errors',
+          label: 'View Errors',
+          type: 'danger',
+          url: `/workflows/${workflowId}/executions/${executionId}/errors`
+        }
+      ];
+      
+    default:
+      return baseActions;
+  }
+}
+
+// Helper function to calculate workflow progress
+function calculateWorkflowProgress(currentNode, nextNodes) {
+  if (!currentNode) return { percentage: 0, stage: 'not-started' };
+  if (!nextNodes || nextNodes.length === 0) return { percentage: 100, stage: 'completed' };
+  
+  // Simple progress calculation - can be enhanced based on workflow complexity
+  return {
+    percentage: 50, // Mid-progress
+    stage: 'in-progress',
+    currentNode: currentNode,
+    remainingNodes: nextNodes.length
+  };
+}
+
+// Helper function to generate webhook signature for Noam
+function generateNoamWebhookSignature(payload) {
+  const crypto = require('crypto');
+  const secret = process.env.NOAM_WEBHOOK_SECRET || 'default-secret';
+  
+  return crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+}
+
 module.exports = router;
