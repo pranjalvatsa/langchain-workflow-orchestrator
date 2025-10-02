@@ -152,6 +152,7 @@ const authRoutes = require('./src/routes/auth');
 const workflowRoutes = require('./src/routes/workflows');
 const executionRoutes = require('./src/routes/executions');
 const userRoutes = require('./src/routes/users');
+const webhookRoutes = require('./src/routes/webhooks');
 const { router: customerWorkflowRoutes, initializeServices } = require('./src/routes/customerWorkflows');
 
 // Initialize services with Socket.IO
@@ -172,6 +173,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/executions', executionRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/webhooks', webhookRoutes);
 app.use('/api/customer-workflows', customerWorkflowRoutes);
 
 // Legacy endpoints for backward compatibility
