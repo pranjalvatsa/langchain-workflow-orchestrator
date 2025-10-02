@@ -125,12 +125,21 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // MongoDB connection
+// Connect to MongoDB
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/langchain-workflows');
-    logger.info(`MongoDB Connected: ${conn.connection.host}`);
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 30000, // 30 seconds
+      connectTimeoutMS: 30000, // 30 seconds
+      socketTimeoutMS: 30000, // 30 seconds
+      maxPoolSize: 10,
+      retryWrites: true,
+      w: 'majority'
+    });
+    logger.info(`📊 MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     logger.error('Database connection failed:', error);
+    logger.error('MongoDB URI (redacted):', process.env.MONGODB_URI?.replace(/mongodb\+srv:\/\/[^:]+:[^@]+@/, 'mongodb+srv://***:***@'));
     process.exit(1);
   }
 };
