@@ -45,6 +45,7 @@ class AuthService {
         passwordHash: hashedPassword,
         name: `${firstName} ${lastName}`,
         noamUserId: noamUserId || `noam_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        noamAccountId: noamUserId || `account_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         role: 'user',
         isActive: true,
         isEmailVerified: false,
@@ -113,7 +114,6 @@ class AuthService {
       // Update login info
       user.loginCount += 1;
       user.lastLoginAt = new Date();
-      user.lastLogin = new Date();
 
       // Add device info if provided
       user.lastActiveAt = new Date();
