@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: langchain-workflow-backend
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        fromDatabase:
+          name: langchain-workflows-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://your-noam-app.vercel.app
+    healthCheckPath: /health
+    autoDeploy: true
+
+databases:
+  - name: langchain-workflows-db
+    plan: starter
