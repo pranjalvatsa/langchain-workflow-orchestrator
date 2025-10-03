@@ -152,6 +152,7 @@ const authRoutes = require('./src/routes/auth');
 const executionRoutes = require('./src/routes/executions');
 const userRoutes = require('./src/routes/users');
 const webhookRoutes = require('./src/routes/webhooks');
+const apiKeyRoutes = require('./src/routes/apiKeys');
 
 // Health check
 app.get('/health', (req, res) => {
@@ -168,6 +169,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/executions', executionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/keys', apiKeyRoutes);
 app.use('/api/universal', require('./src/routes/universal'));
 app.use('/api/templates', require('./src/routes/templates'));
 

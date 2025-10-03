@@ -267,6 +267,12 @@ class AuthService {
 
   async verifyToken(token) {
     try {
+      // Check if it's an API key (starts with 'lwo_')
+      if (token.startsWith('lwo_')) {
+        return await this.verifyApiKey(token);
+      }
+      
+      // Otherwise, treat as JWT token
       const decoded = jwt.verify(token, this.jwtSecret);
       const user = await User.findById(decoded.userId);
 
@@ -276,7 +282,8 @@ class AuthService {
 
       return {
         user: this.sanitizeUser(user),
-        decoded
+        decoded,
+        authType: 'jwt'
       };
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
@@ -284,6 +291,95 @@ class AuthService {
       } else if (error.name === 'JsonWebTokenError') {
         throw new Error('Invalid token');
       }
+      throw error;
+    }
+  }
+
+  async verifyApiKey(apiKey) {
+    try {
+      const { ApiKey } = require('../models');
+      const User = require('../models/User');
+      
+      // Extract key ID from the API key format: lwo_keyId_hash
+      const keyParts = apiKey.split('_');
+      if (keyParts.length < 3 || keyParts[0] !== 'lwo') {
+        throw new Error('Invalid API key format');
+      }
+      
+      const keyId = keyParts[1];
+      
+      // Find the API key in database
+      const apiKeyDoc = await ApiKey.findOne({ keyId }).select('+keyHash');
+      
+      if (!apiKeyDoc) {
+        throw new Error('API key not found');
+      }
+
+      // Check if API key is active
+      if (!apiKeyDoc.isActive) {
+        throw new Error('API key is inactive');
+      }
+
+      // Check if API key has expired
+      if (apiKeyDoc.expiresAt && apiKeyDoc.expiresAt < new Date()) {
+        throw new Error('API key has expired');
+      }
+
+      // Verify the API key hash
+      const crypto = require('crypto');
+      const providedHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+      
+      if (providedHash !== apiKeyDoc.keyHash) {
+        throw new Error('Invalid API key');
+      }
+
+      // Update last used timestamp and usage stats
+      apiKeyDoc.usage.lastUsedAt = new Date();
+      apiKeyDoc.usage.totalRequests += 1;
+      
+      // Simple rate limiting check
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60000);
+      
+      if (!apiKeyDoc.usage.requestsThisMinute) {
+        apiKeyDoc.usage.requestsThisMinute = 1;
+        apiKeyDoc.usage.lastMinuteReset = now;
+      } else if (apiKeyDoc.usage.lastMinuteReset < oneMinuteAgo) {
+        apiKeyDoc.usage.requestsThisMinute = 1;
+        apiKeyDoc.usage.lastMinuteReset = now;
+      } else {
+        apiKeyDoc.usage.requestsThisMinute += 1;
+      }
+
+      // Check rate limits
+      if (apiKeyDoc.usage.requestsThisMinute > apiKeyDoc.rateLimit.requestsPerMinute) {
+        throw new Error('API key rate limit exceeded');
+      }
+
+      await apiKeyDoc.save();
+
+      // Get the associated user
+      const user = await User.findById(apiKeyDoc.owner);
+      if (!user || !user.isActive) {
+        throw new Error('Associated user not found or inactive');
+      }
+
+      this.logger.info(`API key authentication successful: ${keyId} for user ${user.email}`);
+
+      return {
+        user: this.sanitizeUser(user),
+        apiKey: {
+          id: apiKeyDoc._id,
+          keyId: apiKeyDoc.keyId,
+          name: apiKeyDoc.name,
+          permissions: apiKeyDoc.permissions,
+          scopes: apiKeyDoc.scopes,
+          noamAccountId: apiKeyDoc.noamAccountId
+        },
+        authType: 'apikey'
+      };
+    } catch (error) {
+      this.logger.error('API key verification error:', error);
       throw error;
     }
   }

@@ -1,7 +1,7 @@
 const express = require('express');
 const { WorkflowTemplate } = require('../models');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { optionalAuth } = require('../middleware/auth');
+const { optionalAuth, authMiddleware } = require('../middleware/auth');
 const WorkflowService = require('../services/WorkflowService');
 
 const router = express.Router();
@@ -605,7 +605,7 @@ router.post('/save-from-universal', asyncHandler(async (req, res) => {
  *       400:
  *         description: Invalid workflow format
  */
-router.post('/import/reactflow', asyncHandler(async (req, res) => {
+router.post('/import/reactflow', authMiddleware, asyncHandler(async (req, res) => {
   try {
     const { workflow, noamMetadata } = req.body;
     
