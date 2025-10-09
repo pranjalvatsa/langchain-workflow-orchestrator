@@ -6,6 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 const workflowService = new WorkflowService();
+const workflowExecutionService = new WorkflowExecutionService();
 
 // Apply authentication middleware to all execution routes
 router.use(authMiddleware);
@@ -43,7 +44,6 @@ router.get('/', asyncHandler(async (req, res) => {
     limit: parseInt(req.query.limit) || 50
   };
 
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   const executions = await workflowExecutionService.listExecutions(userId, filters);
 
   res.json({
@@ -103,7 +103,6 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Start execution
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   const execution = await workflowExecutionService.executeWorkflow(
     workflow,
     userId,
@@ -140,7 +139,6 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const executionId = req.params.id;
   const userId = req.user._id.toString();
 
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   const execution = await workflowExecutionService.getExecutionStatus(executionId);
 
   if (!execution) {
@@ -192,8 +190,6 @@ router.post('/:id/abort', asyncHandler(async (req, res) => {
   const executionId = req.params.id;
   const userId = req.user._id.toString();
   const { reason = 'User requested abort' } = req.body;
-
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   
   // Get execution to check ownership
   const execution = await workflowExecutionService.getExecutionStatus(executionId);
@@ -264,8 +260,6 @@ router.get('/:id/logs', asyncHandler(async (req, res) => {
   const executionId = req.params.id;
   const userId = req.user._id.toString();
   const { level, limit = 100 } = req.query;
-
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   const execution = await workflowExecutionService.getExecutionStatus(executionId);
 
   if (!execution) {
@@ -321,8 +315,6 @@ router.get('/:id/logs', asyncHandler(async (req, res) => {
 router.get('/:id/steps', asyncHandler(async (req, res) => {
   const executionId = req.params.id;
   const userId = req.user._id.toString();
-
-  const workflowExecutionService = req.app.get('workflowExecutionService');
   const execution = await workflowExecutionService.getExecutionStatus(executionId);
 
   if (!execution) {
