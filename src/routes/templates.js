@@ -525,17 +525,17 @@ router.post('/save-from-universal', asyncHandler(async (req, res) => {
       name: templateData.name,
       description: templateData.description,
       version: templateData.version || '1.0.0',
+      category: templateData.category || 'automation', // Required at root level
       nodes: templateData.nodes || [],
       edges: templateData.edges || [],
       configuration: templateData.configuration || {},
       metadata: {
-        category: templateData.category || 'other',
         tags: templateData.tags || [],
         complexity: templateData.complexity || 'medium',
         isPublic: templateData.isPublic || false,
         ...templateData.metadata
       },
-      createdBy: req.user?.id || 'system',
+      author: req.user?.id || req.user?._id || new require('mongoose').Types.ObjectId(), // Required author field
       status: 'published'
     });
 
