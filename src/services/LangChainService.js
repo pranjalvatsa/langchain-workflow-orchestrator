@@ -630,7 +630,7 @@ class LangChainService {
           return await this.executeEndNode(nodeConfig, context);
         
         case 'llm':
-          return await this.executeLLMNode(config, model, context);
+          return await this.executeLLMNode(nodeConfig.data || config, model, context);
         
         case 'tool':
           return await this.executeToolNode(nodeConfig.data || config, context);
@@ -657,15 +657,42 @@ class LangChainService {
   }
 
   async executeLLMNode(config, modelName, context) {
-    const { prompt, temperature = 0.7, maxTokens = 1000 } = config;
-    const model = this.models[modelName] || this.models['gpt-3.5-turbo'];
+    // Handle different config structures
+    const parameters = config.parameters || config;
+    const { 
+      prompt, 
+      systemPrompt, 
+      userPrompt, 
+      model: configModel,
+      temperature = 0.7, 
+      maxTokens = 1000 
+    } = parameters;
+    
+    // Use model from config if specified, otherwise use the passed modelName
+    const selectedModelName = configModel || modelName || 'gpt-3.5-turbo';
+    const model = this.models[selectedModelName] || this.models['gpt-3.5-turbo'];
     
     // Update model temperature if specified
     model.temperature = temperature;
     model.maxTokens = maxTokens;
 
+    // Build the prompt - handle different prompt structures
+    let finalPrompt;
+    if (prompt) {
+      // Single prompt field
+      finalPrompt = prompt;
+    } else if (systemPrompt && userPrompt) {
+      // System + user prompt structure
+      finalPrompt = `System: ${systemPrompt}\n\nUser: ${userPrompt}`;
+    } else if (userPrompt) {
+      // Just user prompt
+      finalPrompt = userPrompt;
+    } else {
+      throw new Error('No prompt found. Expected "prompt", "userPrompt", or "systemPrompt + userPrompt"');
+    }
+
     // Replace variables in prompt
-    const processedPrompt = this.processPromptVariables(prompt, context);
+    const processedPrompt = this.processPromptVariables(finalPrompt, context);
     
     const response = await model.invoke([
       new HumanMessage(processedPrompt)
@@ -675,7 +702,7 @@ class LangChainService {
       success: true,
       output: response.content,
       metadata: {
-        model: modelName,
+        model: selectedModelName,
         temperature,
         maxTokens,
         tokens_used: response.usage?.total_tokens || 0
