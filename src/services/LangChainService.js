@@ -35,6 +35,11 @@ class LangChainService {
         modelName: 'gpt-4-turbo-preview',
         temperature: 0.7,
         openAIApiKey: process.env.OPENAI_API_KEY
+      }),
+      'gpt-4o-mini': new ChatOpenAI({
+        modelName: 'gpt-4o-mini',
+        temperature: 0.7,
+        openAIApiKey: process.env.OPENAI_API_KEY
       })
     };
 
