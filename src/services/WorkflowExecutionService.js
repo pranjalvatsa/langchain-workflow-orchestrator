@@ -26,9 +26,15 @@ class WorkflowExecutionService {
     try {
       // Create execution record
       const execution = new WorkflowExecution({
-        id: executionId,
+        executionId: executionId,
         workflowId: workflow._id,
-        userId,
+        workflowVersion: workflow.version || '1.0.0',
+        triggeredBy: {
+          type: 'api',
+          userId: userId !== 'anonymous' ? userId : null,
+          source: 'universal-workflow-engine',
+          metadata: options.metadata || {}
+        },
         status: 'running',
         inputs,
         outputs: {},
