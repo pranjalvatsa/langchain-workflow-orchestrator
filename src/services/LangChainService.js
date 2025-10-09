@@ -641,6 +641,7 @@ class LangChainService {
           return await this.executeToolNode(nodeConfig.data || config, context);
         
         case 'human_review':
+          console.log('Executing human review node:', nodeConfig.id);
           return await this.executeHumanReviewNode(nodeConfig, context);
         
         case 'prompt':
