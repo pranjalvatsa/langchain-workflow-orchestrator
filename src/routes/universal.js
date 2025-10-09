@@ -104,8 +104,10 @@ router.post('/workflows/execute', asyncHandler(async (req, res) => {
 
     // Execute the workflow
     const executionResult = await workflowExecutionService.executeWorkflow(
-      workflow.id,
-      executionInput
+      workflow,
+      req.user?.id || 'anonymous',
+      executionInput,
+      { metadata }
     );
 
     // Check if this workflow was imported from Noam and send notification
