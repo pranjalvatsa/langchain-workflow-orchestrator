@@ -478,12 +478,13 @@ class WorkflowService {
       if (template) {
         // Convert template to workflow format for execution
         return {
+          _id: template._id,
           id: template._id,
           templateId: template.templateId,
           name: template.name,
           description: template.description,
-          nodes: template.nodes,
-          edges: template.edges,
+          nodes: template.nodes || [],
+          edges: template.edges || [],
           configuration: template.configuration || {},
           category: template.category,
           version: template.version,
