@@ -149,7 +149,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   }
 
   // Check if user has access to this execution
-  if (execution.userId.toString() !== userId) {
+  if (execution.triggeredBy?.userId?.toString() !== userId) {
     return res.status(403).json({
       error: 'Access forbidden',
       message: 'You do not have permission to view this execution'
@@ -201,7 +201,7 @@ router.post('/:id/abort', asyncHandler(async (req, res) => {
     });
   }
 
-  if (execution.userId.toString() !== userId) {
+  if (execution.triggeredBy?.userId?.toString() !== userId) {
     return res.status(403).json({
       error: 'Access forbidden',
       message: 'You do not have permission to abort this execution'
@@ -269,7 +269,7 @@ router.get('/:id/logs', asyncHandler(async (req, res) => {
     });
   }
 
-  if (execution.userId.toString() !== userId) {
+  if (execution.triggeredBy?.userId?.toString() !== userId) {
     return res.status(403).json({
       error: 'Access forbidden',
       message: 'You do not have permission to view this execution'
@@ -324,7 +324,7 @@ router.get('/:id/steps', asyncHandler(async (req, res) => {
     });
   }
 
-  if (execution.userId.toString() !== userId) {
+  if (execution.triggeredBy?.userId?.toString() !== userId) {
     return res.status(403).json({
       error: 'Access forbidden',
       message: 'You do not have permission to view this execution'
