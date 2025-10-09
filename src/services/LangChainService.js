@@ -821,15 +821,31 @@ class LangChainService {
   }
 
   processPromptVariables(prompt, context) {
-    let processed = prompt;
-    
-    // Replace {{variable}} patterns
-    Object.keys(context).forEach(key => {
-      const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
-      processed = processed.replace(regex, context[key] || '');
-    });
-    
-    return processed;
+    // Handle different data types
+    if (typeof prompt === 'string') {
+      let processed = prompt;
+      
+      // Replace {{variable}} patterns
+      Object.keys(context).forEach(key => {
+        const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
+        processed = processed.replace(regex, context[key] || '');
+      });
+      
+      return processed;
+    } else if (Array.isArray(prompt)) {
+      // Process arrays recursively
+      return prompt.map(item => this.processPromptVariables(item, context));
+    } else if (typeof prompt === 'object' && prompt !== null) {
+      // Process objects recursively
+      const processed = {};
+      for (const [key, value] of Object.entries(prompt)) {
+        processed[key] = this.processPromptVariables(value, context);
+      }
+      return processed;
+    } else {
+      // Return primitive values as-is
+      return prompt;
+    }
   }
 
   evaluateCondition(condition, context) {
