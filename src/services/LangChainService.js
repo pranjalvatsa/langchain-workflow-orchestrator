@@ -852,10 +852,14 @@ class LangChainService {
     if (typeof prompt === 'string') {
       let processed = prompt;
       
-      // Replace {{variable}} patterns
-      Object.keys(context).forEach(key => {
-        const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
-        processed = processed.replace(regex, context[key] || '');
+      // Replace {{variable}} patterns - including dot notation
+      const variableRegex = /{{([^}]+)}}/g;
+      processed = processed.replace(variableRegex, (match, variablePath) => {
+        const trimmedPath = variablePath.trim();
+        
+        // Handle dot notation like "weather-api-2.output.currentTemp"
+        const value = this.getNestedValue(context, trimmedPath);
+        return value !== undefined ? String(value) : match; // Keep original if not found
       });
       
       return processed;
@@ -872,6 +876,20 @@ class LangChainService {
     } else {
       // Return primitive values as-is
       return prompt;
+    }
+  }
+
+  // Helper function to get nested values from context
+  getNestedValue(obj, path) {
+    try {
+      return path.split('.').reduce((current, key) => {
+        if (current && typeof current === 'object' && key in current) {
+          return current[key];
+        }
+        return undefined;
+      }, obj);
+    } catch (error) {
+      return undefined;
     }
   }
 
@@ -992,12 +1010,23 @@ class LangChainService {
       contextKeys: Object.keys(context)
     });
     
-    // Start nodes typically just pass through the input context
-    // and make any configured parameters available
-    const result = {
-      ...context,
-      ...parameters
-    };
+    // Start nodes should pass through the actual input values, not the parameter schemas
+    // Extract actual values from context based on parameter names
+    const result = {};
+    
+    // For each parameter, get the actual value from context
+    Object.keys(parameters).forEach(paramName => {
+      if (context[paramName] !== undefined) {
+        result[paramName] = context[paramName];
+      }
+    });
+    
+    // Also include any other context values
+    Object.keys(context).forEach(key => {
+      if (!(key in parameters) && !key.startsWith('_')) {
+        result[key] = context[key];
+      }
+    });
     
     return {
       success: true,
