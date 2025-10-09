@@ -95,6 +95,15 @@ class WorkflowExecutionService {
     const { execution, context } = activeExecution;
     const { nodes, edges } = workflow;
 
+    // Debug logging
+    this.logger.info('Workflow execution debug:', {
+      workflowId: workflow.id || workflow._id,
+      nodeCount: nodes?.length || 0,
+      edgeCount: edges?.length || 0,
+      nodes: nodes?.map(n => ({ id: n.id, type: n.type })) || [],
+      edges: edges?.map(e => ({ source: e.source, target: e.target })) || []
+    });
+
     // Build execution graph
     const nodeMap = new Map(nodes.map(node => [node.id, node]));
     const edgeMap = this.buildEdgeMap(edges);
@@ -104,7 +113,22 @@ class WorkflowExecutionService {
       !edges.some(edge => edge.target === node.id)
     );
 
+    this.logger.info('Start node detection:', {
+      totalNodes: nodes.length,
+      totalEdges: edges.length,
+      startNodesFound: startNodes.length,
+      startNodeIds: startNodes.map(n => n.id)
+    });
+
     if (startNodes.length === 0) {
+      this.logger.error('No start node found - detailed debug:', {
+        allNodeIds: nodes.map(n => n.id),
+        allEdgeTargets: edges.map(e => e.target),
+        nodesWithIncoming: nodes.map(node => ({
+          id: node.id,
+          hasIncoming: edges.some(edge => edge.target === node.id)
+        }))
+      });
       throw new Error('No start node found in workflow');
     }
 
@@ -518,7 +542,7 @@ class WorkflowExecutionService {
   async markExecutionAsWaiting(executionId, waitingInfo) {
     try {
       await WorkflowExecution.findOneAndUpdate(
-        { id: executionId },
+        { executionId: executionId },
         { 
           $set: { 
             status: 'waiting',
@@ -534,7 +558,7 @@ class WorkflowExecutionService {
   async clearExecutionWaitingStatus(executionId) {
     try {
       await WorkflowExecution.findOneAndUpdate(
-        { id: executionId },
+        { executionId: executionId },
         { 
           $set: { status: 'running' },
           $unset: { waitingInfo: 1 }
@@ -639,7 +663,7 @@ class WorkflowExecutionService {
 
   async logExecutionStep(executionId, stepData) {
     try {
-      const execution = await WorkflowExecution.findOne({ id: executionId });
+      const execution = await WorkflowExecution.findOne({ executionId: executionId });
       if (execution) {
         execution.executionSteps.push(stepData);
         execution.logs.push({
@@ -658,7 +682,7 @@ class WorkflowExecutionService {
   async updateExecutionMetrics(executionId, updates) {
     try {
       await WorkflowExecution.findOneAndUpdate(
-        { id: executionId },
+        { executionId: executionId },
         { $set: { [`metrics.${Object.keys(updates)[0]}`]: Object.values(updates)[0] } }
       );
     } catch (error) {
@@ -719,7 +743,7 @@ class WorkflowExecutionService {
         activeExecution.aborted = true;
         
         await WorkflowExecution.findOneAndUpdate(
-          { id: executionId },
+          { executionId: executionId },
           {
             status: 'aborted',
             'metrics.endTime': new Date(),
