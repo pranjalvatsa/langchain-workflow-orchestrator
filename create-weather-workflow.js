@@ -6,17 +6,24 @@
  */
 
 const mongoose = require('mongoose');
-const WorkflowTemplate = require('./src/models/WorkflowTemplate');
-const User = require('./src/models/User');
+const { WorkflowTemplate, User } = require('./src/models');
 require('dotenv').config();
 
 const weatherWorkflowTemplate = {
   templateId: 'weather-summary-v3',
   name: 'Weather Summary Workflow v3',
   description: 'Enhanced weather workflow - Fetch current weather data for any city and generate AI-powered friendly summary using OpenWeatherMap API and GPT-4o-mini',
-  version: '1.0.0',
+  category: 'automation',
   
-  nodes: [
+  // Version as object (matching index.js schema)
+  version: {
+    major: 1,
+    minor: 0,
+    patch: 0
+  },
+  
+  // Nodes and edges as stringified JSON (matching schema expectations)
+  nodes: JSON.stringify([
     {
       id: 'start-1',
       type: 'start',
@@ -85,9 +92,9 @@ const weatherWorkflowTemplate = {
         }
       }
     }
-  ],
-  
-  edges: [
+  ]),
+
+  edges: JSON.stringify([
     {
       id: 'e1-2',
       source: 'start-1',
@@ -103,9 +110,7 @@ const weatherWorkflowTemplate = {
       source: 'ai-agent-3',
       target: 'response-4'
     }
-  ],
-  
-  configuration: {
+  ]),  configuration: {
     maxConcurrentExecutions: 5,
     timeoutMinutes: 10,
     retryPolicy: 'exponential',
@@ -184,12 +189,14 @@ async function createWeatherWorkflow() {
     if (template) {
       console.log('⚠️  Template exists, updating...');
       Object.assign(template, weatherWorkflowTemplate);
+      template.author = systemUser._id;  // Ensure author is set for updates
+      template.status = 'published';
       await template.save();
     } else {
       console.log('✨ Creating new weather template...');
       template = new WorkflowTemplate({
         ...weatherWorkflowTemplate,
-        createdBy: systemUser._id,
+        author: systemUser._id,  // Required field
         status: 'published'
       });
       await template.save();

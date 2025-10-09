@@ -477,14 +477,63 @@ class WorkflowService {
       const template = await WorkflowTemplate.findOne({ templateId: templateId });
       if (template) {
         // Convert template to workflow format for execution
+        // Parse stringified nodes and edges back to objects
+        let nodes = template.nodes || [];
+        let edges = template.edges || [];
+        
+        // Handle different storage formats for nodes
+        if (typeof nodes === 'string') {
+          try {
+            nodes = JSON.parse(nodes);
+          } catch (e) {
+            this.logger.error('Failed to parse template nodes (string format):', e);
+            nodes = [];
+          }
+        } else if (Array.isArray(nodes) && nodes.length > 0 && typeof nodes[0] === 'string') {
+          // Handle case where nodes is stored as an array with one JSON string element
+          try {
+            nodes = JSON.parse(nodes[0]);
+          } catch (e) {
+            this.logger.error('Failed to parse template nodes (array format):', e);
+            nodes = [];
+          }
+        }
+        
+        // Handle different storage formats for edges
+        if (typeof edges === 'string') {
+          try {
+            edges = JSON.parse(edges);
+          } catch (e) {
+            this.logger.error('Failed to parse template edges (string format):', e);
+            edges = [];
+          }
+        } else if (Array.isArray(edges) && edges.length > 0 && typeof edges[0] === 'string') {
+          // Handle case where edges is stored as an array with one JSON string element
+          try {
+            edges = JSON.parse(edges[0]);
+          } catch (e) {
+            this.logger.error('Failed to parse template edges (array format):', e);
+            edges = [];
+          }
+        }
+        
+        this.logger.info('Template parsing completed:', {
+          templateId: template.templateId,
+          nodesType: typeof template.nodes,
+          edgesType: typeof template.edges,
+          parsedNodesCount: nodes.length,
+          parsedEdgesCount: edges.length,
+          firstNodeId: nodes.length > 0 ? nodes[0].id : 'none'
+        });
+        
         return {
           _id: template._id,
           id: template._id,
           templateId: template.templateId,
           name: template.name,
           description: template.description,
-          nodes: template.nodes || [],
-          edges: template.edges || [],
+          nodes: nodes,
+          edges: edges,
           configuration: template.configuration || {},
           category: template.category,
           version: template.version,
