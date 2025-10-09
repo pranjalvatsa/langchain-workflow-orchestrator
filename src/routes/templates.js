@@ -535,7 +535,7 @@ router.post('/save-from-universal', asyncHandler(async (req, res) => {
         isPublic: templateData.isPublic || false,
         ...templateData.metadata
       },
-      author: req.user?.id || req.user?._id || new require('mongoose').Types.ObjectId(), // Required author field
+      author: req.user?.id || req.user?._id || new (require('mongoose').Types.ObjectId)(), // Required author field
       status: 'published'
     });
 
