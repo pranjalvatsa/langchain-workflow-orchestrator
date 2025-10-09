@@ -373,6 +373,9 @@ notificationSchema.index({ expiresAt: 1 });
 
 module.exports = {
   WorkflowTemplate: mongoose.model('WorkflowTemplate', workflowTemplateSchema),
+  Workflow: require('./Workflow'),
+  WorkflowExecution: require('./WorkflowExecution'),
+  User: require('./User'),
   ApiKey: mongoose.model('ApiKey', apiKeySchema),
   AuditLog: mongoose.model('AuditLog', auditLogSchema),
   Notification: mongoose.model('Notification', notificationSchema)

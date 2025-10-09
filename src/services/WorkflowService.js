@@ -1,4 +1,4 @@
-const { Workflow } = require('../models');
+const { Workflow, WorkflowTemplate } = require('../models');
 const LangChainService = require('./LangChainService');
 const winston = require('winston');
 
@@ -473,6 +473,25 @@ class WorkflowService {
 
   async getWorkflowByTemplateId(templateId) {
     try {
+      // First try to find in WorkflowTemplate collection
+      const template = await WorkflowTemplate.findOne({ templateId: templateId });
+      if (template) {
+        // Convert template to workflow format for execution
+        return {
+          id: template._id,
+          templateId: template.templateId,
+          name: template.name,
+          description: template.description,
+          nodes: template.nodes,
+          edges: template.edges,
+          configuration: template.configuration || {},
+          category: template.category,
+          version: template.version,
+          status: template.status
+        };
+      }
+      
+      // Fallback: check if there's a workflow instance with this templateId
       const workflow = await Workflow.findOne({ templateId: templateId });
       return workflow;
     } catch (error) {

@@ -1,4 +1,4 @@
-const { Workflow } = require('../models');
+const { Workflow, WorkflowTemplate } = require('../models');
 const winston = require('winston');
 
 class WorkflowTemplateService {
