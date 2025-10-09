@@ -168,10 +168,11 @@ class WorkflowExecutionService {
       try {
         // Log step start
         await this.logExecutionStep(executionId, {
+          stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
-          type: node.type,
+          nodeType: node.type,
           status: 'running',
-          startTime: new Date(),
+          startedAt: new Date(),
           input: executionState.context
         });
 
@@ -194,10 +195,11 @@ class WorkflowExecutionService {
 
         // Log step completion
         await this.logExecutionStep(executionId, {
+          stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
-          type: node.type,
+          nodeType: node.type,
           status: 'completed',
-          endTime: new Date(),
+          completedAt: new Date(),
           output: nodeResult.output,
           metadata: nodeResult.metadata
         });
@@ -232,10 +234,11 @@ class WorkflowExecutionService {
       } catch (error) {
         // Log step failure
         await this.logExecutionStep(executionId, {
+          stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
-          type: node.type,
+          nodeType: node.type,
           status: 'failed',
-          endTime: new Date(),
+          completedAt: new Date(),
           error: error.message
         });
 
@@ -453,10 +456,11 @@ class WorkflowExecutionService {
       
       // Log the approval
       await this.logExecutionStep(executionId, {
+        stepId: `step_${nodeId}_${Date.now()}`,
         nodeId: nodeId,
-        type: 'humanReview',
+        nodeType: 'humanReview',
         status: 'completed',
-        endTime: new Date(),
+        completedAt: new Date(),
         output: enhancedApprovalResult,
         metadata: {
           decision: enhancedApprovalResult.decision,
@@ -516,8 +520,9 @@ class WorkflowExecutionService {
   async handleHumanReviewTimeout(executionId, nodeId, taskId) {
     try {
       await this.logExecutionStep(executionId, {
+        stepId: `step_${nodeId}_${Date.now()}`,
         nodeId: nodeId,
-        type: 'humanReview',
+        nodeType: 'humanReview',
         status: 'timeout',
         endTime: new Date(),
         error: 'Human review timeout reached'

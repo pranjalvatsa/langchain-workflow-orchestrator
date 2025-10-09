@@ -633,7 +633,7 @@ class LangChainService {
           return await this.executeLLMNode(config, model, context);
         
         case 'tool':
-          return await this.executeToolNode(config, context);
+          return await this.executeToolNode(nodeConfig.data || config, context);
         
         case 'prompt':
           return await this.executePromptNode(config, context);
@@ -684,7 +684,14 @@ class LangChainService {
   }
 
   async executeToolNode(config, context) {
-    const { toolName, input } = config;
+    // Handle different config structures - toolName or tool field
+    const toolName = config.toolName || config.tool;
+    const input = config.input || config.parameters || config;
+    
+    if (!toolName) {
+      throw new Error(`Tool name not specified. Expected 'toolName' or 'tool' field in config.`);
+    }
+    
     const tool = this.tools.get(toolName);
     
     if (!tool) {
@@ -694,7 +701,13 @@ class LangChainService {
     // Process input variables
     const processedInput = this.processPromptVariables(input, context);
     
-    const result = await tool.call(processedInput);
+    // Convert object input to JSON string for tools that expect JSON strings
+    let toolInput = processedInput;
+    if (typeof processedInput === 'object' && processedInput !== null) {
+      toolInput = JSON.stringify(processedInput);
+    }
+
+    const result = await tool.call(toolInput);
     
     return {
       success: true,
