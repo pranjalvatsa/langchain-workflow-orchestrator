@@ -6,7 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 const workflowService = new WorkflowService();
-const workflowExecutionService = new WorkflowExecutionService();
+const workflowExecutionService = new WorkflowExecutionService(null); // Pass null for io since it's optional
 
 // Apply authentication middleware to all execution routes
 router.use(authMiddleware);
