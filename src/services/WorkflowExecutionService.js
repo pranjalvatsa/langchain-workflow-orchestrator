@@ -186,6 +186,12 @@ class WorkflowExecutionService {
         // Execute node
         const nodeResult = await this.executeNode(executionId, node, executionState.context);
         
+        // Check if this is a human review node that requires pausing
+        if (nodeResult.requiresHumanReview) {
+          await this.handleHumanReviewNode(executionId, node, nodeResult, executionState);
+          return results; // Stop execution here, workflow is paused
+        }
+        
         // Update context with node result
         if (nodeResult.output) {
           if (typeof nodeResult.output === 'object') {
@@ -823,6 +829,228 @@ class WorkflowExecutionService {
       this.logger.error('Error listing executions:', error);
       throw error;
     }
+  }
+
+  /**
+   * Handle human review node - pause workflow and create external task if configured
+   */
+  async handleHumanReviewNode(executionId, node, nodeResult, executionState) {
+    const activeExecution = this.activeExecutions.get(executionId);
+    if (!activeExecution) {
+      throw new Error('Execution not found');
+    }
+
+    try {
+      // Update execution status to paused
+      await WorkflowExecution.findOneAndUpdate(
+        { executionId },
+        {
+          status: 'waiting_human_review',
+          'pauseState.isPaused': true,
+          'pauseState.pausedAt': new Date(),
+          'pauseState.pausedBy': 'system',
+          'pauseState.pauseReason': 'human_review_required',
+          'pauseState.currentNodeId': node.id
+        }
+      );
+
+      // Log the human review step as waiting
+      await this.logExecutionStep(executionId, {
+        stepId: `step_${node.id}_${Date.now()}`,
+        nodeId: node.id,
+        nodeType: node.type,
+        status: 'waiting_human_review',
+        startedAt: new Date(),
+        input: executionState.context,
+        humanReview: {
+          required: true,
+          reviewType: nodeResult.output.reviewType,
+          instructions: nodeResult.output.instructions,
+          reviewData: nodeResult.output.reviewData,
+          externalTask: nodeResult.output.externalTask || {}
+        }
+      });
+
+      // If external task is configured, create the task
+      if (nodeResult.output.externalTask?.enabled) {
+        await this.createExternalTask(executionId, node.id, nodeResult.output);
+      }
+
+      // Emit pause event
+      this.emitExecutionEvent(executionId, 'workflow:paused', {
+        executionId,
+        nodeId: node.id,
+        reason: 'human_review_required',
+        reviewData: nodeResult.output
+      });
+
+      this.logger.info('Workflow paused for human review:', {
+        executionId,
+        nodeId: node.id,
+        hasExternalTask: !!nodeResult.output.externalTask?.enabled
+      });
+
+    } catch (error) {
+      this.logger.error('Error handling human review node:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create external task via API (e.g., NOAM tasks)
+   */
+  async createExternalTask(executionId, nodeId, reviewOutput) {
+    const { externalTask } = reviewOutput;
+    
+    try {
+      const axios = require('axios');
+      
+      // Prepare the request body with workflow context
+      const taskPayload = {
+        ...externalTask.apiConfig.body,
+        workflow: {
+          executionId,
+          nodeId,
+          instructions: reviewOutput.instructions,
+          reviewData: reviewOutput.reviewData,
+          callbackUrl: `${process.env.APP_URL || 'http://localhost:8000'}/api/webhooks/human-review/${executionId}/${nodeId}`
+        }
+      };
+
+      // Make the API call to create the external task
+      const response = await axios({
+        method: externalTask.apiConfig.method,
+        url: externalTask.apiConfig.endpoint,
+        headers: {
+          'Content-Type': 'application/json',
+          ...externalTask.apiConfig.headers
+        },
+        data: taskPayload,
+        timeout: 30000
+      });
+
+      // Update the execution with the external task details
+      await WorkflowExecution.findOneAndUpdate(
+        { 
+          executionId,
+          'steps.nodeId': nodeId 
+        },
+        {
+          $set: {
+            'steps.$.humanReview.externalTask.taskId': response.data.taskId || response.data.id,
+            'steps.$.humanReview.externalTask.taskStatus': 'pending',
+            'steps.$.humanReview.externalTask.taskResponse': response.data,
+            'steps.$.humanReview.externalTask.createdAt': new Date()
+          }
+        }
+      );
+
+      this.logger.info('External task created successfully:', {
+        executionId,
+        nodeId,
+        taskId: response.data.taskId || response.data.id,
+        endpoint: externalTask.apiConfig.endpoint
+      });
+
+      return response.data;
+
+    } catch (error) {
+      this.logger.error('Error creating external task:', error);
+      
+      // Update execution with error
+      await WorkflowExecution.findOneAndUpdate(
+        { 
+          executionId,
+          'steps.nodeId': nodeId 
+        },
+        {
+          $set: {
+            'steps.$.humanReview.externalTask.taskStatus': 'failed',
+            'steps.$.humanReview.externalTask.error': error.message
+          }
+        }
+      );
+
+      throw error;
+    }
+  }
+
+  /**
+   * Resume workflow after human review decision
+   */
+  async resumeWorkflowAfterReview(executionId, nodeId, decision, reviewData = {}) {
+    try {
+      const activeExecution = this.activeExecutions.get(executionId);
+      if (!activeExecution) {
+        // Execution might have been cleaned up, reload it
+        const execution = await WorkflowExecution.findOne({ executionId });
+        if (!execution) {
+          throw new Error('Execution not found');
+        }
+        // TODO: Reload execution state and continue
+      }
+
+      // Update the human review step
+      await WorkflowExecution.findOneAndUpdate(
+        { 
+          executionId,
+          'steps.nodeId': nodeId 
+        },
+        {
+          $set: {
+            'steps.$.status': decision === 'approve' ? 'completed' : 'failed',
+            'steps.$.humanReview.approved': decision === 'approve',
+            'steps.$.humanReview.reviewedAt': new Date(),
+            'steps.$.humanReview.reviewNotes': reviewData.notes || '',
+            'steps.$.humanReview.externalTask.completedAt': new Date(),
+            'steps.$.completedAt': new Date()
+          }
+        }
+      );
+
+      if (decision === 'approve') {
+        // Continue workflow execution
+        await this.continueWorkflowExecution(executionId, nodeId);
+      } else {
+        // Stop workflow execution
+        await this.stopWorkflowExecution(executionId, 'rejected_by_human_review');
+      }
+
+    } catch (error) {
+      this.logger.error('Error resuming workflow after review:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Continue workflow execution from a specific node
+   */
+  async continueWorkflowExecution(executionId, fromNodeId) {
+    // TODO: Implement workflow continuation logic
+    // This would involve finding the next nodes and continuing execution
+    this.logger.info('Continuing workflow execution:', { executionId, fromNodeId });
+  }
+
+  /**
+   * Stop workflow execution
+   */
+  async stopWorkflowExecution(executionId, reason) {
+    await WorkflowExecution.findOneAndUpdate(
+      { executionId },
+      {
+        status: 'failed',
+        'error.message': `Workflow stopped: ${reason}`,
+        'pauseState.isPaused': false,
+        endTime: new Date()
+      }
+    );
+
+    this.emitExecutionEvent(executionId, 'workflow:stopped', {
+      executionId,
+      reason
+    });
+
+    this.logger.info('Workflow execution stopped:', { executionId, reason });
   }
 
   emitExecutionEvent(executionId, event, data) {

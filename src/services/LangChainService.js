@@ -640,6 +640,9 @@ class LangChainService {
         case 'tool':
           return await this.executeToolNode(nodeConfig.data || config, context);
         
+        case 'human_review':
+          return await this.executeHumanReviewNode(nodeConfig, context);
+        
         case 'prompt':
           return await this.executePromptNode(config, context);
         
@@ -1070,6 +1073,65 @@ class LangChainService {
         executedAt: new Date().toISOString()
       }
     };
+  }
+
+  /**
+   * Execute human review node - creates external task and pauses workflow
+   */
+  async executeHumanReviewNode(nodeConfig, context = {}) {
+    const { data = {} } = nodeConfig;
+    const { 
+      label = 'Human Review Required',
+      reviewType = 'approval',
+      instructions = 'Please review this workflow step',
+      reviewData = {},
+      externalTask = {}
+    } = data;
+
+    this.logger.info('Executing human review node:', {
+      nodeId: nodeConfig.id,
+      reviewType,
+      hasExternalTask: !!externalTask.enabled
+    });
+
+    // Process review data with context variables
+    const processedReviewData = this.processPromptVariables(reviewData, context);
+    const processedInstructions = this.processPromptVariables(instructions, context);
+
+    // Prepare the response that will pause the workflow
+    const result = {
+      success: true,
+      requiresHumanReview: true,
+      output: {
+        status: 'waiting_human_review',
+        reviewType,
+        instructions: processedInstructions,
+        reviewData: processedReviewData,
+        nodeId: nodeConfig.id,
+        createdAt: new Date().toISOString()
+      },
+      metadata: {
+        nodeType: 'human_review',
+        nodeId: nodeConfig.id,
+        executedAt: new Date().toISOString(),
+        pauseWorkflow: true
+      }
+    };
+
+    // If external task is enabled, prepare the API call configuration
+    if (externalTask.enabled) {
+      result.output.externalTask = {
+        enabled: true,
+        apiConfig: {
+          endpoint: this.processPromptVariables(externalTask.endpoint || '', context),
+          method: externalTask.method || 'POST',
+          headers: this.processPromptVariables(externalTask.headers || {}, context),
+          body: this.processPromptVariables(externalTask.body || {}, context)
+        }
+      };
+    }
+
+    return result;
   }
 }
 

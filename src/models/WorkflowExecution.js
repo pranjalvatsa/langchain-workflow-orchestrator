@@ -60,12 +60,32 @@ const executionStepSchema = new mongoose.Schema({
   
   // Human review data
   humanReview: {
+    // Internal review data
     assignedTo: String,
     reviewedBy: String,
     reviewedAt: Date,
     approved: Boolean,
     reviewNotes: String,
-    escalated: Boolean
+    escalated: Boolean,
+    
+    // External API integration
+    externalTask: {
+      enabled: { type: Boolean, default: false },
+      apiConfig: {
+        endpoint: String,
+        method: { type: String, enum: ['GET', 'POST', 'PUT', 'PATCH'], default: 'POST' },
+        headers: mongoose.Schema.Types.Mixed,
+        body: mongoose.Schema.Types.Mixed,
+        authType: { type: String, enum: ['none', 'bearer', 'apikey', 'basic'], default: 'none' },
+        credentials: mongoose.Schema.Types.Mixed
+      },
+      taskId: String, // External task ID from NOAM
+      taskStatus: { type: String, enum: ['pending', 'assigned', 'in_progress', 'completed', 'rejected'], default: 'pending' },
+      callbackUrl: String, // Webhook URL for task updates
+      taskResponse: mongoose.Schema.Types.Mixed, // Response from external system
+      createdAt: Date,
+      completedAt: Date
+    }
   },
   
   // Metadata

@@ -47,6 +47,103 @@ router.post('/workflow-complete', asyncHandler(async (req, res) => {
 
 /**
  * @swagger
+ * /api/webhooks/human-review/{executionId}/{nodeId}:
+ *   post:
+ *     summary: Webhook for external human review responses from NOAM tasks
+ *     tags: [Webhooks]
+ *     parameters:
+ *       - in: path
+ *         name: executionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: nodeId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               taskId:
+ *                 type: string
+ *               action:
+ *                 type: string
+ *                 enum: [approve, reject]
+ *               comments:
+ *                 type: string
+ *               reviewedBy:
+ *                 type: string
+ *               taskData:
+ *                 type: object
+ *     responses:
+ *       200:
+ *         description: Human review processed successfully
+ *       404:
+ *         description: Execution or node not found
+ */
+router.post('/human-review/:executionId/:nodeId', asyncHandler(async (req, res) => {
+  const { executionId, nodeId } = req.params;
+  const { taskId, action, comments, reviewedBy, taskData } = req.body;
+
+  console.log('Received NOAM human review webhook:', {
+    executionId,
+    nodeId,
+    action,
+    reviewedBy,
+    taskId,
+    comments
+  });
+
+  // Validate action (NOAM sends "approve" or "reject")
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({
+      error: 'Invalid action',
+      message: 'Action must be either "approve" or "reject"'
+    });
+  }
+
+  try {
+    // Resume workflow with the review decision
+    await workflowExecutionService.resumeWorkflowAfterReview(
+      executionId, 
+      nodeId, 
+      action, // Use "approve"/"reject" directly from NOAM
+      {
+        reviewedBy,
+        notes: comments, // NOAM sends comments field
+        taskId,
+        taskData,
+        reviewedAt: new Date()
+      }
+    );
+
+    res.json({
+      success: true,
+      message: 'NOAM human review processed successfully',
+      data: {
+        executionId,
+        nodeId,
+        action,
+        processedAt: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing NOAM human review webhook:', error);
+    res.status(500).json({
+      error: 'Processing failed',
+      message: error.message
+    });
+  }
+}));
+
+/**
+ * @swagger
  * /api/webhooks/noam-integration:
  *   post:
  *     summary: Webhook for Noam app integration events
