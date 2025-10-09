@@ -623,6 +623,12 @@ class LangChainService {
     
     try {
       switch (type) {
+        case 'start':
+          return await this.executeStartNode(nodeConfig, context);
+        
+        case 'end':
+          return await this.executeEndNode(nodeConfig, context);
+        
         case 'llm':
           return await this.executeLLMNode(config, model, context);
         
@@ -915,6 +921,65 @@ class LangChainService {
         warnings
       };
     }
+  }
+
+  /**
+   * Execute start node - passes through input parameters
+   */
+  async executeStartNode(nodeConfig, context = {}) {
+    const { data = {} } = nodeConfig;
+    const { parameters = {} } = data;
+    
+    this.logger.info('Executing start node:', {
+      nodeId: nodeConfig.id,
+      parameters: Object.keys(parameters),
+      contextKeys: Object.keys(context)
+    });
+    
+    // Start nodes typically just pass through the input context
+    // and make any configured parameters available
+    const result = {
+      ...context,
+      ...parameters
+    };
+    
+    return {
+      success: true,
+      output: result,
+      metadata: {
+        nodeType: 'start',
+        nodeId: nodeConfig.id,
+        executedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  /**
+   * Execute end node - collects final output
+   */
+  async executeEndNode(nodeConfig, context = {}) {
+    const { data = {} } = nodeConfig;
+    const { output = {} } = data;
+    
+    this.logger.info('Executing end node:', {
+      nodeId: nodeConfig.id,
+      outputKeys: Object.keys(output),
+      contextKeys: Object.keys(context)
+    });
+    
+    // End nodes format the final output
+    // Replace template variables in output with actual values from context
+    const result = this.replaceTemplateVariables(output, context);
+    
+    return {
+      success: true,
+      output: result,
+      metadata: {
+        nodeType: 'end',
+        nodeId: nodeConfig.id,
+        executedAt: new Date().toISOString()
+      }
+    };
   }
 }
 

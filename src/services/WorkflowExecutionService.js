@@ -665,7 +665,15 @@ class WorkflowExecutionService {
     try {
       const execution = await WorkflowExecution.findOne({ executionId: executionId });
       if (execution) {
-        execution.executionSteps.push(stepData);
+        // Initialize arrays if they don't exist
+        if (!execution.steps) {
+          execution.steps = [];
+        }
+        if (!execution.logs) {
+          execution.logs = [];
+        }
+        
+        execution.steps.push(stepData);
         execution.logs.push({
           timestamp: new Date(),
           level: stepData.status === 'failed' ? 'error' : 'info',
