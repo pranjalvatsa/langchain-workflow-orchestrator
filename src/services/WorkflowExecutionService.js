@@ -917,13 +917,28 @@ class WorkflowExecutionService {
         }
       };
 
+      // Process headers to replace environment variables
+      const processedHeaders = {};
+      if (externalTask.apiConfig.headers) {
+        for (const [key, value] of Object.entries(externalTask.apiConfig.headers)) {
+          if (typeof value === 'string') {
+            // Replace {{ENV_VAR}} patterns with actual environment variables
+            processedHeaders[key] = value.replace(/{{([^}]+)}}/g, (match, envVar) => {
+              return process.env[envVar.trim()] || match;
+            });
+          } else {
+            processedHeaders[key] = value;
+          }
+        }
+      }
+
       // Make the API call to create the external task
       const response = await axios({
         method: externalTask.apiConfig.method,
         url: externalTask.apiConfig.endpoint,
         headers: {
           'Content-Type': 'application/json',
-          ...externalTask.apiConfig.headers
+          ...processedHeaders
         },
         data: taskPayload,
         timeout: 30000

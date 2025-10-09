@@ -73,7 +73,7 @@ const humanReviewWorkflowPayload = {
           "endpoint": "https://noam-vision-backend.onrender.com/api/tasks",
           "method": "POST",
           "headers": {
-            "Authorization": "Bearer YOUR_NOAM_API_TOKEN",
+            "Authorization": "Bearer {{NOAM_API_TOKEN}}",
             "Content-Type": "application/json"
           },
           "body": {
