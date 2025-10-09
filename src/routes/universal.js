@@ -405,6 +405,68 @@ router.post('/workflows/trigger', asyncHandler(async (req, res) => {
 
 /**
  * @swagger
+ * /api/universal/executions/{executionId}/status:
+ *   get:
+ *     summary: Get execution status and results
+ *     description: Universal endpoint to get workflow execution status and results
+ *     tags: [Universal Workflow Engine]
+ *     parameters:
+ *       - in: path
+ *         name: executionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The execution ID to check
+ *     responses:
+ *       200:
+ *         description: Execution status and results
+ *       404:
+ *         description: Execution not found
+ */
+router.get('/executions/:executionId/status', asyncHandler(async (req, res) => {
+  const { executionId } = req.params;
+
+  try {
+    const execution = await workflowExecutionService.getExecutionStatus(executionId);
+
+    if (!execution) {
+      return res.status(404).json({
+        success: false,
+        error: 'Execution not found',
+        message: `No execution found with ID: ${executionId}`
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        executionId: execution.executionId,
+        workflowId: execution.workflowId,
+        status: execution.status,
+        inputs: execution.inputs,
+        outputs: execution.outputs,
+        executionSteps: execution.executionSteps,
+        metrics: execution.metrics,
+        logs: execution.logs,
+        error: execution.error,
+        startTime: execution.createdAt,
+        endTime: execution.metrics?.endTime,
+        duration: execution.metrics?.duration
+      }
+    });
+
+  } catch (error) {
+    console.error('Universal execution status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get execution status',
+      message: error.message
+    });
+  }
+}));
+
+/**
+ * @swagger
  * /api/universal/tools:
  *   get:
  *     summary: Get list of all available tools

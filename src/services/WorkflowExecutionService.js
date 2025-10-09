@@ -748,7 +748,7 @@ class WorkflowExecutionService {
 
   async getExecutionStatus(executionId) {
     try {
-      const execution = await WorkflowExecution.findOne({ id: executionId });
+      const execution = await WorkflowExecution.findOne({ executionId: executionId });
       return execution;
     } catch (error) {
       this.logger.error('Error getting execution status:', error);
