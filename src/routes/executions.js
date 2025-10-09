@@ -2,10 +2,13 @@ const express = require('express');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
 const WorkflowService = require('../services/WorkflowService');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { requireWorkspaceAccess } = require('../middleware/auth');
+const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 const workflowService = new WorkflowService();
+
+// Apply authentication middleware to all execution routes
+router.use(authMiddleware);
 
 /**
  * @swagger
