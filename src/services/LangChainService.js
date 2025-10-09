@@ -1025,7 +1025,7 @@ class LangChainService {
     
     // End nodes format the final output
     // Replace template variables in output with actual values from context
-    const result = this.replaceTemplateVariables(output, context);
+    const result = this.processPromptVariables(output, context);
     
     return {
       success: true,
