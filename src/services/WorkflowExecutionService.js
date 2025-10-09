@@ -136,7 +136,14 @@ class WorkflowExecutionService {
     const executionState = {
       completedNodes: new Set(),
       nodeResults: new Map(),
-      context: { ...initialInputs }
+      context: { 
+        ...initialInputs,
+        // Add common template variables
+        timestamp: new Date().toISOString(),
+        executionId: executionId,
+        workflowId: workflow._id?.toString() || workflow.id,
+        workflowName: workflow.name
+      }
     };
 
     // Execute nodes
@@ -184,7 +191,9 @@ class WorkflowExecutionService {
           if (typeof nodeResult.output === 'object') {
             executionState.context = { ...executionState.context, ...nodeResult.output };
           } else {
+            // For string outputs, store both with and without _output suffix
             executionState.context[`${node.id}_output`] = nodeResult.output;
+            executionState.context[node.id] = nodeResult.output;
           }
         }
 

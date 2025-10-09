@@ -1,5 +1,13 @@
-require('dotenv').config();
-const mongoose = require('mongoose');
+require('dotenv').config(    // Create the workflow template with fixed issues
+    const template = new WorkflowTemplate({
+      name: 'Clean Weather Workflow Fixed',
+      description: 'A clean weather workflow with fixed template processing and proper variable resolution',
+      category: 'automation',  // Valid enum value
+      subcategory: 'weather',
+      tags: ['weather', 'api', 'ai', 'clean'],
+      templateId: `clean_weather_workflow_${Date.now()}`, // Required unique field
+      version: { major: 1, minor: 0, patch: 0 },
+      author: testUserId, // Required fieldmongoose = require('mongoose');
 const { WorkflowTemplate } = require('./src/models');
 
 // Connect to MongoDB
@@ -33,8 +41,8 @@ const createCleanWeatherWorkflow = async () => {
       isPublic: true,
       authorId: testUserId,
       
-      // Nodes - stored as JSON strings to match schema
-      nodes: JSON.stringify([
+      // Nodes - simple array of objects (not JSON strings)
+      nodes: [
         {
           id: 'start-1',
           type: 'start',
@@ -102,10 +110,10 @@ const createCleanWeatherWorkflow = async () => {
             }
           }
         }
-      ]),
+      ],
       
-      // Edges - stored as JSON strings to match schema  
-      edges: JSON.stringify([
+      // Edges - simple array of objects (not JSON strings)  
+      edges: [
         {
           id: 'e1-2',
           source: 'start-1',
@@ -124,44 +132,31 @@ const createCleanWeatherWorkflow = async () => {
           target: 'response-4',
           type: 'default'
         }
-      ]),
+      ],
       
-      // Input schema
-      inputSchema: {
-        type: 'object',
-        properties: {
-          cityName: {
-            type: 'string',
-            description: 'Name of the city to get weather for',
-            default: 'New York'
-          }
-        },
-        required: ['cityName']
+      // Configuration
+      config: {
+        requiredIntegrations: ['openai', 'openweathermap'],
+        complexity: 'beginner',
+        estimatedExecutionTime: 15,
+        useCase: 'Weather information retrieval and summarization'
       },
       
-      // Output schema
-      outputSchema: {
-        type: 'object',
-        properties: {
-          city: { type: 'string' },
-          summary: { type: 'string' },
-          timestamp: { type: 'string' },
-          source: { type: 'string' }
+      // Variables
+      variables: [
+        {
+          name: 'cityName',
+          type: 'string',
+          description: 'Name of the city to get weather for',
+          defaultValue: 'New York',
+          required: true
         }
-      },
+      ],
       
-      metadata: {
-        estimatedDuration: 15,
-        complexity: 'low',
-        apiCalls: ['openweathermap', 'openai'],
-        pricing: {
-          estimatedCost: 0.02,
-          currency: 'USD'
-        }
-      },
-      
-      createdBy: testUserId,
-      updatedBy: testUserId
+      // Status
+      status: 'published',
+      isPublic: true,
+      publishedAt: new Date()
     });
     
     const savedTemplate = await template.save();
