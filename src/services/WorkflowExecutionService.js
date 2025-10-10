@@ -1,19 +1,16 @@
-const { WorkflowExecution } = require('../models');
-const LangChainService = require('./LangChainService');
-const winston = require('winston');
+const { WorkflowExecution } = require("../models");
+const LangChainService = require("./LangChainService");
+const winston = require("winston");
 
 class WorkflowExecutionService {
   constructor(io) {
     this.io = io;
     this.langChainService = new LangChainService();
-    
+
     this.logger = winston.createLogger({
-      level: 'info',
+      level: "info",
       format: winston.format.json(),
-      transports: [
-        new winston.transports.Console(),
-        new winston.transports.File({ filename: 'logs/execution.log' })
-      ]
+      transports: [new winston.transports.Console(), new winston.transports.File({ filename: "logs/execution.log" })],
     });
 
     // Track active executions
@@ -22,20 +19,20 @@ class WorkflowExecutionService {
 
   async executeWorkflow(workflow, userId, inputs = {}, options = {}) {
     const executionId = this.generateExecutionId();
-    
+
     try {
       // Create execution record
       const execution = new WorkflowExecution({
         executionId: executionId,
         workflowId: workflow._id,
-        workflowVersion: workflow.version || '1.0.0',
+        workflowVersion: workflow.version || "1.0.0",
         triggeredBy: {
-          type: 'api',
-          userId: userId !== 'anonymous' ? userId : null,
-          source: 'universal-workflow-engine',
-          metadata: options.metadata || {}
+          type: "api",
+          userId: userId !== "anonymous" ? userId : null,
+          source: "universal-workflow-engine",
+          metadata: options.metadata || {},
         },
-        status: 'running',
+        status: "running",
         inputs,
         outputs: {},
         executionSteps: [],
@@ -44,13 +41,13 @@ class WorkflowExecutionService {
           startTime: new Date(),
           totalNodes: workflow.nodes.length,
           executedNodes: 0,
-          failedNodes: 0
+          failedNodes: 0,
         },
         configuration: {
           maxRetries: options.maxRetries || 3,
           timeout: options.timeout || 300000, // 5 minutes
-          parallelExecution: options.parallelExecution || false
-        }
+          parallelExecution: options.parallelExecution || false,
+        },
       });
 
       await execution.save();
@@ -60,28 +57,28 @@ class WorkflowExecutionService {
         execution,
         workflow,
         context: { ...inputs },
-        aborted: false
+        aborted: false,
       });
 
       // Emit start event
-      this.emitExecutionEvent(executionId, 'execution_started', {
+      this.emitExecutionEvent(executionId, "execution_started", {
         executionId,
         workflowId: workflow._id,
-        status: 'running'
+        status: "running",
       });
 
       // Start execution
       this.executeWorkflowNodes(executionId, workflow, inputs)
-        .then(result => {
-          this.completeExecution(executionId, 'completed', result);
+        .then((result) => {
+          this.completeExecution(executionId, "completed", result);
         })
-        .catch(error => {
-          this.completeExecution(executionId, 'failed', null, error);
+        .catch((error) => {
+          this.completeExecution(executionId, "failed", null, error);
         });
 
       return execution;
     } catch (error) {
-      this.logger.error('Error starting workflow execution:', error);
+      this.logger.error("Error starting workflow execution:", error);
       throw error;
     }
   }
@@ -89,71 +86,63 @@ class WorkflowExecutionService {
   async executeWorkflowNodes(executionId, workflow, initialInputs) {
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
-      throw new Error('Execution not found');
+      throw new Error("Execution not found");
     }
 
     const { execution, context } = activeExecution;
     const { nodes, edges } = workflow;
 
     // Debug logging
-    this.logger.info('Workflow execution debug:', {
+    this.logger.info("Workflow execution debug:", {
       workflowId: workflow.id || workflow._id,
       nodeCount: nodes?.length || 0,
       edgeCount: edges?.length || 0,
-      nodes: nodes?.map(n => ({ id: n.id, type: n.type })) || [],
-      edges: edges?.map(e => ({ source: e.source, target: e.target })) || []
+      nodes: nodes?.map((n) => ({ id: n.id, type: n.type })) || [],
+      edges: edges?.map((e) => ({ source: e.source, target: e.target })) || [],
     });
 
     // Build execution graph
-    const nodeMap = new Map(nodes.map(node => [node.id, node]));
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
     const edgeMap = this.buildEdgeMap(edges);
-    
-    // Find start nodes (nodes with no incoming edges)
-    const startNodes = nodes.filter(node => 
-      !edges.some(edge => edge.target === node.id)
-    );
 
-    this.logger.info('Start node detection:', {
+    // Find start nodes (nodes with no incoming edges)
+    const startNodes = nodes.filter((node) => !edges.some((edge) => edge.target === node.id));
+
+    this.logger.info("Start node detection:", {
       totalNodes: nodes.length,
       totalEdges: edges.length,
       startNodesFound: startNodes.length,
-      startNodeIds: startNodes.map(n => n.id)
+      startNodeIds: startNodes.map((n) => n.id),
     });
 
     if (startNodes.length === 0) {
-      this.logger.error('No start node found - detailed debug:', {
-        allNodeIds: nodes.map(n => n.id),
-        allEdgeTargets: edges.map(e => e.target),
-        nodesWithIncoming: nodes.map(node => ({
+      this.logger.error("No start node found - detailed debug:", {
+        allNodeIds: nodes.map((n) => n.id),
+        allEdgeTargets: edges.map((e) => e.target),
+        nodesWithIncoming: nodes.map((node) => ({
           id: node.id,
-          hasIncoming: edges.some(edge => edge.target === node.id)
-        }))
+          hasIncoming: edges.some((edge) => edge.target === node.id),
+        })),
       });
-      throw new Error('No start node found in workflow');
+      throw new Error("No start node found in workflow");
     }
 
     // Initialize execution state
     const executionState = {
       completedNodes: new Set(),
       nodeResults: new Map(),
-      context: { 
+      context: {
         ...initialInputs,
         // Add common template variables
         timestamp: new Date().toISOString(),
         executionId: executionId,
         workflowId: workflow._id?.toString() || workflow.id,
-        workflowName: workflow.name
-      }
+        workflowName: workflow.name,
+      },
     };
 
     // Execute nodes
-    const results = await this.executeNodeSequence(
-      executionId,
-      startNodes,
-      nodeMap,
-      edgeMap,
-      executionState
-    );
+    const results = await this.executeNodeSequence(executionId, startNodes, nodeMap, edgeMap, executionState);
 
     return results;
   }
@@ -161,7 +150,7 @@ class WorkflowExecutionService {
   async executeNodeSequence(executionId, currentNodes, nodeMap, edgeMap, executionState) {
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution || activeExecution.aborted) {
-      throw new Error('Execution aborted');
+      throw new Error("Execution aborted");
     }
 
     const { execution } = activeExecution;
@@ -178,28 +167,37 @@ class WorkflowExecutionService {
           stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
           nodeType: node.type,
-          status: 'running',
+          status: "running",
           startedAt: new Date(),
-          input: executionState.context
+          input: executionState.context,
         });
 
         // Execute node
         const nodeResult = await this.executeNode(executionId, node, executionState.context);
-        
+
         // Check if this is a human review node that requires pausing
         if (nodeResult.requiresHumanReview) {
           await this.handleHumanReviewNode(executionId, node, nodeResult, executionState);
           return results; // Stop execution here, workflow is paused
         }
-        
+
         // Update context with node result
         if (nodeResult.output) {
-          if (typeof nodeResult.output === 'object') {
+          if (typeof nodeResult.output === "object") {
             executionState.context = { ...executionState.context, ...nodeResult.output };
           } else {
             // For string outputs, store both with and without _output suffix
             executionState.context[`${node.id}_output`] = nodeResult.output;
             executionState.context[node.id] = nodeResult.output;
+            // Also store in the format expected by variable references: nodeId.output
+            executionState.context[`${node.id}.output`] = nodeResult.output;
+            
+            // Debug logging
+            console.log(`[CONTEXT] Updated context for node ${node.id}:`);
+            console.log(`[CONTEXT] - ${node.id}_output: ${typeof nodeResult.output}`);
+            console.log(`[CONTEXT] - ${node.id}: ${typeof nodeResult.output}`);
+            console.log(`[CONTEXT] - ${node.id}.output: ${typeof nodeResult.output}`);
+            console.log(`[CONTEXT] Context keys:`, Object.keys(executionState.context));
           }
         }
 
@@ -213,65 +211,58 @@ class WorkflowExecutionService {
           stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
           nodeType: node.type,
-          status: 'completed',
+          status: "completed",
           completedAt: new Date(),
           output: nodeResult.output,
-          metadata: nodeResult.metadata
+          metadata: nodeResult.metadata,
         });
 
         // Update metrics
         await this.updateExecutionMetrics(executionId, {
-          executedNodes: executionState.completedNodes.size
+          executedNodes: executionState.completedNodes.size,
         });
 
         // Emit progress event
-        this.emitExecutionEvent(executionId, 'node_completed', {
+        this.emitExecutionEvent(executionId, "node_completed", {
           nodeId: node.id,
           result: nodeResult,
-          progress: (executionState.completedNodes.size / nodeMap.size) * 100
+          progress: (executionState.completedNodes.size / nodeMap.size) * 100,
         });
 
         // Find next nodes
         const nextNodes = this.getNextNodes(node.id, edgeMap, nodeMap, nodeResult);
-        
+
         if (nextNodes.length > 0) {
           // Execute next nodes
-          const nextResults = await this.executeNodeSequence(
-            executionId,
-            nextNodes,
-            nodeMap,
-            edgeMap,
-            executionState
-          );
+          const nextResults = await this.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
           results.push(...nextResults);
         }
-
       } catch (error) {
         // Log step failure
         await this.logExecutionStep(executionId, {
           stepId: `step_${node.id}_${Date.now()}`,
           nodeId: node.id,
           nodeType: node.type,
-          status: 'failed',
+          status: "failed",
           completedAt: new Date(),
-          error: error.message
+          error: error.message,
         });
 
         // Update metrics
         await this.updateExecutionMetrics(executionId, {
-          failedNodes: (execution.metrics.failedNodes || 0) + 1
+          failedNodes: (execution.metrics.failedNodes || 0) + 1,
         });
 
         // Emit error event
-        this.emitExecutionEvent(executionId, 'node_failed', {
+        this.emitExecutionEvent(executionId, "node_failed", {
           nodeId: node.id,
-          error: error.message
+          error: error.message,
         });
 
         // Check if we should retry or fail
         if (node.config?.retryOnFailure && node.retryCount < (node.config.maxRetries || 3)) {
           node.retryCount = (node.retryCount || 0) + 1;
-          
+
           // Retry after delay
           await this.delay(node.config.retryDelay || 1000);
           return this.executeNodeSequence(executionId, [node], nodeMap, edgeMap, executionState);
@@ -287,25 +278,25 @@ class WorkflowExecutionService {
   async executeNode(executionId, node, context) {
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
-      throw new Error('Execution not found');
+      throw new Error("Execution not found");
     }
 
     try {
       let result;
 
       // Handle different node types
-      if (node.type === 'humanReview') {
+      if (node.type === "humanReview") {
         result = await this.executeHumanReviewNode(executionId, node, context);
       } else {
         // Execute node using LangChain service
         result = await this.langChainService.executeNode(node, context);
       }
-      
+
       // Add execution metadata
       result.executionId = executionId;
       result.nodeId = node.id;
       result.timestamp = new Date();
-      
+
       return result;
     } catch (error) {
       this.logger.error(`Error executing node ${node.id}:`, error);
@@ -317,10 +308,10 @@ class WorkflowExecutionService {
     try {
       const { humanReviewConfig } = node.data;
       const { taskConfig, timeout = 86400000 } = humanReviewConfig; // 24 hours default
-      
+
       // Process template variables in task configuration
       const processedTaskConfig = this.processTemplateVariables(taskConfig, context);
-      
+
       // Enhanced task configuration with escalation options
       const enhancedTaskConfig = {
         ...processedTaskConfig,
@@ -329,23 +320,23 @@ class WorkflowExecutionService {
           // Add escalation options to the human reviewer
           availableActions: [
             {
-              id: 'respond',
-              label: 'Send Response to Customer',
-              description: 'Provide a response directly to the customer'
+              id: "respond",
+              label: "Send Response to Customer",
+              description: "Provide a response directly to the customer",
             },
             {
-              id: 'escalate', 
-              label: 'Escalate to Human Agent',
-              description: 'Transfer this call to a live human agent'
-            }
+              id: "escalate",
+              label: "Escalate to Human Agent",
+              description: "Transfer this call to a live human agent",
+            },
           ],
           callDeflectionContext: {
             callId: context.callId,
             transcription: context.transcription,
             callerInfo: context.callerInfo,
-            classification: context.intent_classification_output
-          }
-        }
+            classification: context.intent_classification_output,
+          },
+        },
       };
 
       // Step 1: Create task in Noam app
@@ -353,15 +344,18 @@ class WorkflowExecutionService {
         taskTitle: enhancedTaskConfig.taskTitle,
         taskDescription: enhancedTaskConfig.taskDescription,
         taskData: enhancedTaskConfig.data,
-        priority: enhancedTaskConfig.priority || 'high',
+        priority: enhancedTaskConfig.priority || "high",
         assignee: enhancedTaskConfig.assignee,
-        workflowExecutionId: executionId
+        workflowExecutionId: executionId,
       };
 
-      const taskCreationResult = await this.langChainService.executeToolNode({
-        toolName: 'noam_task_creator',
-        input: JSON.stringify(taskCreationInput)
-      }, context);
+      const taskCreationResult = await this.langChainService.executeToolNode(
+        {
+          toolName: "noam_task_creator",
+          input: JSON.stringify(taskCreationInput),
+        },
+        context
+      );
 
       if (!taskCreationResult.success) {
         throw new Error(`Failed to create task: ${taskCreationResult.output}`);
@@ -374,17 +368,17 @@ class WorkflowExecutionService {
       await this.markExecutionAsWaiting(executionId, {
         nodeId: node.id,
         taskId: taskId,
-        waitingFor: 'human_approval',
+        waitingFor: "human_approval",
         createdAt: new Date(),
-        timeout: new Date(Date.now() + timeout)
+        timeout: new Date(Date.now() + timeout),
       });
 
       // Emit waiting event
-      this.emitExecutionEvent(executionId, 'waiting_for_human', {
+      this.emitExecutionEvent(executionId, "waiting_for_human", {
         nodeId: node.id,
         taskId: taskId,
         executionId: executionId,
-        taskUrl: `${process.env.NOAM_APP_URL}/tasks/${taskId}` // If you have Noam app URL
+        taskUrl: `${process.env.NOAM_APP_URL}/tasks/${taskId}`, // If you have Noam app URL
       });
 
       // Step 3: Poll for task completion (non-blocking)
@@ -393,18 +387,18 @@ class WorkflowExecutionService {
       // Return pending result - execution will be resumed when task is completed
       return {
         success: true,
-        status: 'pending',
+        status: "pending",
         output: {
           taskId: taskId,
-          status: 'waiting_for_approval',
-          taskData: processedTaskConfig
+          status: "waiting_for_approval",
+          taskData: processedTaskConfig,
         },
         metadata: {
-          nodeType: 'humanReview',
+          nodeType: "humanReview",
           taskId: taskId,
-          waitingFor: 'human_approval',
-          createdAt: new Date()
-        }
+          waitingFor: "human_approval",
+          createdAt: new Date(),
+        },
       };
     } catch (error) {
       this.logger.error(`Error executing human review node ${node.id}:`, error);
@@ -415,18 +409,21 @@ class WorkflowExecutionService {
   async startTaskPolling(executionId, nodeId, taskId, timeout) {
     try {
       // Run polling in background
-      const pollResult = await this.langChainService.executeToolNode({
-        toolName: 'task_status_poller',
-        input: JSON.stringify({
-          taskId: taskId,
-          maxWaitTime: timeout,
-          pollInterval: 5000 // Poll every 5 seconds
-        })
-      }, {});
+      const pollResult = await this.langChainService.executeToolNode(
+        {
+          toolName: "task_status_poller",
+          input: JSON.stringify({
+            taskId: taskId,
+            maxWaitTime: timeout,
+            pollInterval: 5000, // Poll every 5 seconds
+          }),
+        },
+        {}
+      );
 
       const pollResponse = JSON.parse(pollResult.output);
-      
-      if (pollResponse.success && pollResponse.status === 'completed') {
+
+      if (pollResponse.success && pollResponse.status === "completed") {
         // Task completed, resume workflow
         await this.resumeExecutionAfterHumanApproval(executionId, nodeId, pollResponse);
       } else {
@@ -458,77 +455,77 @@ class WorkflowExecutionService {
         selectedAction: approvalResult.taskData?.selectedAction || approvalResult.decision,
         responseText: approvalResult.taskData?.responseText || approvalResult.feedback,
         escalationReason: approvalResult.taskData?.escalationReason,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
 
       activeExecution.context[`${nodeId}_approval`] = enhancedApprovalResult;
       activeExecution.context[`${nodeId}_output`] = enhancedApprovalResult.selectedAction || enhancedApprovalResult.decision;
-      
+
       // Add response text to context for potential use in response nodes
       if (enhancedApprovalResult.responseText) {
-        activeExecution.context['final_response'] = enhancedApprovalResult.responseText;
+        activeExecution.context["final_response"] = enhancedApprovalResult.responseText;
       }
-      
+
       // Log the approval
       await this.logExecutionStep(executionId, {
         stepId: `step_${nodeId}_${Date.now()}`,
         nodeId: nodeId,
-        nodeType: 'humanReview',
-        status: 'completed',
+        nodeType: "humanReview",
+        status: "completed",
         completedAt: new Date(),
         output: enhancedApprovalResult,
         metadata: {
           decision: enhancedApprovalResult.decision,
           selectedAction: enhancedApprovalResult.selectedAction,
           feedback: enhancedApprovalResult.feedback,
-          escalationReason: enhancedApprovalResult.escalationReason
-        }
+          escalationReason: enhancedApprovalResult.escalationReason,
+        },
       });
 
       // Emit approval event
-      this.emitExecutionEvent(executionId, 'human_approval_received', {
+      this.emitExecutionEvent(executionId, "human_approval_received", {
         nodeId: nodeId,
         decision: approvalResult.decision,
         feedback: approvalResult.feedback,
-        executionId: executionId
+        executionId: executionId,
       });
 
       // Check if approved or rejected
-      if (approvalResult.decision === 'approved') {
+      if (approvalResult.decision === "approved") {
         // Continue workflow to next nodes
         const { workflow } = activeExecution;
         const { nodes, edges } = workflow;
-        const nodeMap = new Map(nodes.map(node => [node.id, node]));
+        const nodeMap = new Map(nodes.map((node) => [node.id, node]));
         const edgeMap = this.buildEdgeMap(edges);
-        
+
         const nextNodes = this.getNextNodes(nodeId, edgeMap, nodeMap, { success: true });
-        
+
         if (nextNodes.length > 0) {
           // Continue execution with next nodes
           const executionState = {
             completedNodes: new Set([nodeId]),
             nodeResults: new Map([[nodeId, { success: true, output: approvalResult }]]),
-            context: activeExecution.context
+            context: activeExecution.context,
           };
-          
+
           await this.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
         } else {
           // No more nodes, complete workflow
-          this.completeExecution(executionId, 'completed', {
-            finalDecision: 'approved',
-            approvalDetails: approvalResult
+          this.completeExecution(executionId, "completed", {
+            finalDecision: "approved",
+            approvalDetails: approvalResult,
           });
         }
       } else {
         // Workflow rejected, complete with rejection status
-        this.completeExecution(executionId, 'rejected', {
-          finalDecision: 'rejected',
-          rejectionReason: approvalResult.feedback
+        this.completeExecution(executionId, "rejected", {
+          finalDecision: "rejected",
+          rejectionReason: approvalResult.feedback,
         });
       }
     } catch (error) {
       this.logger.error(`Error resuming execution after approval:`, error);
-      this.completeExecution(executionId, 'failed', null, error);
+      this.completeExecution(executionId, "failed", null, error);
     }
   }
 
@@ -537,25 +534,25 @@ class WorkflowExecutionService {
       await this.logExecutionStep(executionId, {
         stepId: `step_${nodeId}_${Date.now()}`,
         nodeId: nodeId,
-        nodeType: 'humanReview',
-        status: 'timeout',
+        nodeType: "humanReview",
+        status: "timeout",
         endTime: new Date(),
-        error: 'Human review timeout reached'
+        error: "Human review timeout reached",
       });
 
-      this.emitExecutionEvent(executionId, 'human_review_timeout', {
+      this.emitExecutionEvent(executionId, "human_review_timeout", {
         nodeId: nodeId,
         taskId: taskId,
-        executionId: executionId
+        executionId: executionId,
       });
 
       // Complete execution with timeout status
-      this.completeExecution(executionId, 'timeout', {
-        reason: 'Human review timeout',
-        taskId: taskId
+      this.completeExecution(executionId, "timeout", {
+        reason: "Human review timeout",
+        taskId: taskId,
       });
     } catch (error) {
-      this.logger.error('Error handling human review timeout:', error);
+      this.logger.error("Error handling human review timeout:", error);
     }
   }
 
@@ -563,15 +560,15 @@ class WorkflowExecutionService {
     try {
       await WorkflowExecution.findOneAndUpdate(
         { executionId: executionId },
-        { 
-          $set: { 
-            status: 'waiting',
-            waitingInfo: waitingInfo
-          }
+        {
+          $set: {
+            status: "waiting",
+            waitingInfo: waitingInfo,
+          },
         }
       );
     } catch (error) {
-      this.logger.error('Error marking execution as waiting:', error);
+      this.logger.error("Error marking execution as waiting:", error);
     }
   }
 
@@ -579,23 +576,23 @@ class WorkflowExecutionService {
     try {
       await WorkflowExecution.findOneAndUpdate(
         { executionId: executionId },
-        { 
-          $set: { status: 'running' },
-          $unset: { waitingInfo: 1 }
+        {
+          $set: { status: "running" },
+          $unset: { waitingInfo: 1 },
         }
       );
     } catch (error) {
-      this.logger.error('Error clearing execution waiting status:', error);
+      this.logger.error("Error clearing execution waiting status:", error);
     }
   }
 
   processTemplateVariables(template, context) {
-    if (typeof template === 'string') {
+    if (typeof template === "string") {
       return template.replace(/\{\{(.*?)\}\}/g, (match, variable) => {
         const value = this.getContextValue(variable.trim(), context);
         return value !== undefined ? value : match;
       });
-    } else if (typeof template === 'object' && template !== null) {
+    } else if (typeof template === "object" && template !== null) {
       const result = {};
       for (const [key, value] of Object.entries(template)) {
         result[key] = this.processTemplateVariables(value, context);
@@ -606,17 +603,17 @@ class WorkflowExecutionService {
   }
 
   getContextValue(path, context) {
-    const parts = path.split('.');
+    const parts = path.split(".");
     let value = context;
-    
+
     for (const part of parts) {
-      if (value && typeof value === 'object' && part in value) {
+      if (value && typeof value === "object" && part in value) {
         value = value[part];
       } else {
         return undefined;
       }
     }
-    
+
     return value;
   }
 
@@ -646,38 +643,38 @@ class WorkflowExecutionService {
     // Evaluate edge condition
     try {
       const { type, value } = edge.condition;
-      
+
       switch (type) {
-        case 'success':
+        case "success":
           return nodeResult.success === true;
-        case 'failure':
+        case "failure":
           return nodeResult.success === false;
-        case 'output_equals':
+        case "output_equals":
           return nodeResult.output === value;
-        case 'output_contains':
-          return typeof nodeResult.output === 'string' && nodeResult.output.includes(value);
-        case 'path':
+        case "output_contains":
+          return typeof nodeResult.output === "string" && nodeResult.output.includes(value);
+        case "path":
           // For conditional nodes that specify next path
           return nodeResult.nextPath === edge.id;
         default:
           return true;
       }
     } catch (error) {
-      this.logger.error('Error evaluating edge condition:', error);
+      this.logger.error("Error evaluating edge condition:", error);
       return false;
     }
   }
 
   buildEdgeMap(edges) {
     const edgeMap = new Map();
-    
+
     for (const edge of edges) {
       if (!edgeMap.has(edge.source)) {
         edgeMap.set(edge.source, []);
       }
       edgeMap.get(edge.source).push(edge);
     }
-    
+
     return edgeMap;
   }
 
@@ -692,29 +689,26 @@ class WorkflowExecutionService {
         if (!execution.logs) {
           execution.logs = [];
         }
-        
+
         execution.steps.push(stepData);
         execution.logs.push({
           timestamp: new Date(),
-          level: stepData.status === 'failed' ? 'error' : 'info',
+          level: stepData.status === "failed" ? "error" : "info",
           message: `Node ${stepData.nodeId} ${stepData.status}`,
-          data: stepData
+          data: stepData,
         });
         await execution.save();
       }
     } catch (error) {
-      this.logger.error('Error logging execution step:', error);
+      this.logger.error("Error logging execution step:", error);
     }
   }
 
   async updateExecutionMetrics(executionId, updates) {
     try {
-      await WorkflowExecution.findOneAndUpdate(
-        { executionId: executionId },
-        { $set: { [`metrics.${Object.keys(updates)[0]}`]: Object.values(updates)[0] } }
-      );
+      await WorkflowExecution.findOneAndUpdate({ executionId: executionId }, { $set: { [`metrics.${Object.keys(updates)[0]}`]: Object.values(updates)[0] } });
     } catch (error) {
-      this.logger.error('Error updating execution metrics:', error);
+      this.logger.error("Error updating execution metrics:", error);
     }
   }
 
@@ -725,22 +719,39 @@ class WorkflowExecutionService {
         return;
       }
 
-      const { execution } = activeExecution;
-      
+      const { execution, context } = activeExecution;
+
       // Update execution record
       execution.status = status;
       execution.metrics.endTime = new Date();
       execution.metrics.duration = execution.metrics.endTime - execution.metrics.startTime;
-      
-      if (result) {
+
+      // Collect final output from context (response node output)
+      let finalOutput = null;
+      if (result && Array.isArray(result)) {
+        // Find the response node result
+        const responseNodeResult = result.find((r) => (r.nodeId && r.nodeId.includes("end")) || (r.nodeId && r.nodeId.includes("response")));
+        if (responseNodeResult && responseNodeResult.output) {
+          finalOutput = responseNodeResult.output;
+        }
+      }
+
+      // If no response node output, use the entire context as output
+      if (!finalOutput && context) {
+        finalOutput = context;
+      }
+
+      if (finalOutput) {
+        execution.outputs = finalOutput;
+      } else if (result) {
         execution.outputs = result;
       }
-      
+
       if (error) {
         execution.error = {
           message: error.message,
           stack: error.stack,
-          timestamp: new Date()
+          timestamp: new Date(),
         };
       }
 
@@ -750,50 +761,50 @@ class WorkflowExecutionService {
       this.activeExecutions.delete(executionId);
 
       // Emit completion event
-      this.emitExecutionEvent(executionId, 'execution_completed', {
+      this.emitExecutionEvent(executionId, "execution_completed", {
         executionId,
         status,
         result,
         error: error?.message,
-        duration: execution.metrics.duration
+        duration: execution.metrics.duration,
       });
 
       this.logger.info(`Execution ${executionId} completed with status: ${status}`);
     } catch (err) {
-      this.logger.error('Error completing execution:', err);
+      this.logger.error("Error completing execution:", err);
     }
   }
 
-  async abortExecution(executionId, reason = 'User requested') {
+  async abortExecution(executionId, reason = "User requested") {
     try {
       const activeExecution = this.activeExecutions.get(executionId);
       if (activeExecution) {
         activeExecution.aborted = true;
-        
+
         await WorkflowExecution.findOneAndUpdate(
           { executionId: executionId },
           {
-            status: 'aborted',
-            'metrics.endTime': new Date(),
+            status: "aborted",
+            "metrics.endTime": new Date(),
             error: {
               message: reason,
-              timestamp: new Date()
-            }
+              timestamp: new Date(),
+            },
           }
         );
 
         this.activeExecutions.delete(executionId);
 
-        this.emitExecutionEvent(executionId, 'execution_aborted', {
+        this.emitExecutionEvent(executionId, "execution_aborted", {
           executionId,
-          reason
+          reason,
         });
 
         return true;
       }
       return false;
     } catch (error) {
-      this.logger.error('Error aborting execution:', error);
+      this.logger.error("Error aborting execution:", error);
       throw error;
     }
   }
@@ -803,7 +814,7 @@ class WorkflowExecutionService {
       const execution = await WorkflowExecution.findOne({ executionId: executionId });
       return execution;
     } catch (error) {
-      this.logger.error('Error getting execution status:', error);
+      this.logger.error("Error getting execution status:", error);
       throw error;
     }
   }
@@ -811,22 +822,22 @@ class WorkflowExecutionService {
   async listExecutions(userId, filters = {}) {
     try {
       const query = { userId };
-      
+
       if (filters.status) {
         query.status = filters.status;
       }
-      
+
       if (filters.workflowId) {
         query.workflowId = filters.workflowId;
       }
 
       const executions = await WorkflowExecution.find(query)
-        .sort({ 'metrics.startTime': -1 })
+        .sort({ "metrics.startTime": -1 })
         .limit(filters.limit || 50);
 
       return executions;
     } catch (error) {
-      this.logger.error('Error listing executions:', error);
+      this.logger.error("Error listing executions:", error);
       throw error;
     }
   }
@@ -837,7 +848,7 @@ class WorkflowExecutionService {
   async handleHumanReviewNode(executionId, node, nodeResult, executionState) {
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
-      throw new Error('Execution not found');
+      throw new Error("Execution not found");
     }
 
     try {
@@ -845,12 +856,12 @@ class WorkflowExecutionService {
       await WorkflowExecution.findOneAndUpdate(
         { executionId },
         {
-          status: 'waiting_human_review',
-          'pauseState.isPaused': true,
-          'pauseState.pausedAt': new Date(),
-          'pauseState.pausedBy': 'system',
-          'pauseState.pauseReason': 'human_review_required',
-          'pauseState.currentNodeId': node.id
+          status: "waiting_human_review",
+          "pauseState.isPaused": true,
+          "pauseState.pausedAt": new Date(),
+          "pauseState.pausedBy": "system",
+          "pauseState.pauseReason": "human_review_required",
+          "pauseState.currentNodeId": node.id,
         }
       );
 
@@ -859,7 +870,7 @@ class WorkflowExecutionService {
         stepId: `step_${node.id}_${Date.now()}`,
         nodeId: node.id,
         nodeType: node.type,
-        status: 'waiting_human_review',
+        status: "waiting_human_review",
         startedAt: new Date(),
         input: executionState.context,
         humanReview: {
@@ -867,8 +878,8 @@ class WorkflowExecutionService {
           reviewType: nodeResult.output.reviewType,
           instructions: nodeResult.output.instructions,
           reviewData: nodeResult.output.reviewData,
-          externalTask: nodeResult.output.externalTask || {}
-        }
+          externalTask: nodeResult.output.externalTask || {},
+        },
       });
 
       // If external task is configured, create the task
@@ -877,21 +888,20 @@ class WorkflowExecutionService {
       }
 
       // Emit pause event
-      this.emitExecutionEvent(executionId, 'workflow:paused', {
+      this.emitExecutionEvent(executionId, "workflow:paused", {
         executionId,
         nodeId: node.id,
-        reason: 'human_review_required',
-        reviewData: nodeResult.output
+        reason: "human_review_required",
+        reviewData: nodeResult.output,
       });
 
-      this.logger.info('Workflow paused for human review:', {
+      this.logger.info("Workflow paused for human review:", {
         executionId,
         nodeId: node.id,
-        hasExternalTask: !!nodeResult.output.externalTask?.enabled
+        hasExternalTask: !!nodeResult.output.externalTask?.enabled,
       });
-
     } catch (error) {
-      this.logger.error('Error handling human review node:', error);
+      this.logger.error("Error handling human review node:", error);
       throw error;
     }
   }
@@ -901,10 +911,10 @@ class WorkflowExecutionService {
    */
   async createExternalTask(executionId, nodeId, reviewOutput) {
     const { externalTask } = reviewOutput;
-    
+
     try {
-      const axios = require('axios');
-      
+      const axios = require("axios");
+
       // Prepare the request body with workflow context
       const taskPayload = {
         ...externalTask.apiConfig.body,
@@ -913,15 +923,15 @@ class WorkflowExecutionService {
           nodeId,
           instructions: reviewOutput.instructions,
           reviewData: reviewOutput.reviewData,
-          callbackUrl: `${process.env.APP_URL || 'http://localhost:8000'}/api/webhooks/human-review/${executionId}/${nodeId}`
-        }
+          callbackUrl: `${process.env.APP_URL || "http://localhost:8000"}/api/webhooks/human-review/${executionId}/${nodeId}`,
+        },
       };
 
       // Process headers to replace environment variables
       const processedHeaders = {};
       if (externalTask.apiConfig.headers) {
         for (const [key, value] of Object.entries(externalTask.apiConfig.headers)) {
-          if (typeof value === 'string') {
+          if (typeof value === "string") {
             // Replace {{ENV_VAR}} patterns with actual environment variables
             processedHeaders[key] = value.replace(/{{([^}]+)}}/g, (match, envVar) => {
               return process.env[envVar.trim()] || match;
@@ -937,52 +947,51 @@ class WorkflowExecutionService {
         method: externalTask.apiConfig.method,
         url: externalTask.apiConfig.endpoint,
         headers: {
-          'Content-Type': 'application/json',
-          ...processedHeaders
+          "Content-Type": "application/json",
+          ...processedHeaders,
         },
         data: taskPayload,
-        timeout: 30000
+        timeout: 30000,
       });
 
       // Update the execution with the external task details
       await WorkflowExecution.findOneAndUpdate(
-        { 
+        {
           executionId,
-          'steps.nodeId': nodeId 
+          "steps.nodeId": nodeId,
         },
         {
           $set: {
-            'steps.$.humanReview.externalTask.taskId': response.data.taskId || response.data.id,
-            'steps.$.humanReview.externalTask.taskStatus': 'pending',
-            'steps.$.humanReview.externalTask.taskResponse': response.data,
-            'steps.$.humanReview.externalTask.createdAt': new Date()
-          }
+            "steps.$.humanReview.externalTask.taskId": response.data.taskId || response.data.id,
+            "steps.$.humanReview.externalTask.taskStatus": "pending",
+            "steps.$.humanReview.externalTask.taskResponse": response.data,
+            "steps.$.humanReview.externalTask.createdAt": new Date(),
+          },
         }
       );
 
-      this.logger.info('External task created successfully:', {
+      this.logger.info("External task created successfully:", {
         executionId,
         nodeId,
         taskId: response.data.taskId || response.data.id,
-        endpoint: externalTask.apiConfig.endpoint
+        endpoint: externalTask.apiConfig.endpoint,
       });
 
       return response.data;
-
     } catch (error) {
-      this.logger.error('Error creating external task:', error);
-      
+      this.logger.error("Error creating external task:", error);
+
       // Update execution with error
       await WorkflowExecution.findOneAndUpdate(
-        { 
+        {
           executionId,
-          'steps.nodeId': nodeId 
+          "steps.nodeId": nodeId,
         },
         {
           $set: {
-            'steps.$.humanReview.externalTask.taskStatus': 'failed',
-            'steps.$.humanReview.externalTask.error': error.message
-          }
+            "steps.$.humanReview.externalTask.taskStatus": "failed",
+            "steps.$.humanReview.externalTask.error": error.message,
+          },
         }
       );
 
@@ -1000,39 +1009,38 @@ class WorkflowExecutionService {
         // Execution might have been cleaned up, reload it
         const execution = await WorkflowExecution.findOne({ executionId });
         if (!execution) {
-          throw new Error('Execution not found');
+          throw new Error("Execution not found");
         }
         // TODO: Reload execution state and continue
       }
 
       // Update the human review step
       await WorkflowExecution.findOneAndUpdate(
-        { 
+        {
           executionId,
-          'steps.nodeId': nodeId 
+          "steps.nodeId": nodeId,
         },
         {
           $set: {
-            'steps.$.status': decision === 'approve' ? 'completed' : 'failed',
-            'steps.$.humanReview.approved': decision === 'approve',
-            'steps.$.humanReview.reviewedAt': new Date(),
-            'steps.$.humanReview.reviewNotes': reviewData.notes || '',
-            'steps.$.humanReview.externalTask.completedAt': new Date(),
-            'steps.$.completedAt': new Date()
-          }
+            "steps.$.status": decision === "approve" ? "completed" : "failed",
+            "steps.$.humanReview.approved": decision === "approve",
+            "steps.$.humanReview.reviewedAt": new Date(),
+            "steps.$.humanReview.reviewNotes": reviewData.notes || "",
+            "steps.$.humanReview.externalTask.completedAt": new Date(),
+            "steps.$.completedAt": new Date(),
+          },
         }
       );
 
-      if (decision === 'approve') {
+      if (decision === "approve") {
         // Continue workflow execution
         await this.continueWorkflowExecution(executionId, nodeId);
       } else {
         // Stop workflow execution
-        await this.stopWorkflowExecution(executionId, 'rejected_by_human_review');
+        await this.stopWorkflowExecution(executionId, "rejected_by_human_review");
       }
-
     } catch (error) {
-      this.logger.error('Error resuming workflow after review:', error);
+      this.logger.error("Error resuming workflow after review:", error);
       throw error;
     }
   }
@@ -1043,7 +1051,7 @@ class WorkflowExecutionService {
   async continueWorkflowExecution(executionId, fromNodeId) {
     // TODO: Implement workflow continuation logic
     // This would involve finding the next nodes and continuing execution
-    this.logger.info('Continuing workflow execution:', { executionId, fromNodeId });
+    this.logger.info("Continuing workflow execution:", { executionId, fromNodeId });
   }
 
   /**
@@ -1053,19 +1061,19 @@ class WorkflowExecutionService {
     await WorkflowExecution.findOneAndUpdate(
       { executionId },
       {
-        status: 'failed',
-        'error.message': `Workflow stopped: ${reason}`,
-        'pauseState.isPaused': false,
-        endTime: new Date()
+        status: "failed",
+        "error.message": `Workflow stopped: ${reason}`,
+        "pauseState.isPaused": false,
+        endTime: new Date(),
       }
     );
 
-    this.emitExecutionEvent(executionId, 'workflow:stopped', {
+    this.emitExecutionEvent(executionId, "workflow:stopped", {
       executionId,
-      reason
+      reason,
     });
 
-    this.logger.info('Workflow execution stopped:', { executionId, reason });
+    this.logger.info("Workflow execution stopped:", { executionId, reason });
   }
 
   emitExecutionEvent(executionId, event, data) {
@@ -1079,13 +1087,13 @@ class WorkflowExecutionService {
   }
 
   delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // Cleanup method for graceful shutdown
   async cleanup() {
     for (const [executionId] of this.activeExecutions) {
-      await this.abortExecution(executionId, 'Server shutdown');
+      await this.abortExecution(executionId, "Server shutdown");
     }
   }
 }

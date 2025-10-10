@@ -1,8 +1,8 @@
-const express = require('express');
-const { asyncHandler } = require('../middleware/errorHandler');
-const { authMiddleware } = require('../middleware/auth');
-const WorkflowExecutionService = require('../services/WorkflowExecutionService');
-const WorkflowService = require('../services/WorkflowService');
+const express = require("express");
+const { asyncHandler } = require("../middleware/errorHandler");
+const { authMiddleware } = require("../middleware/auth");
+const WorkflowExecutionService = require("../services/WorkflowExecutionService");
+const WorkflowService = require("../services/WorkflowService");
 
 const router = express.Router();
 const workflowExecutionService = new WorkflowExecutionService();
@@ -13,10 +13,10 @@ router.use(authMiddleware);
 
 /**
  * Universal Workflow Engine
- * 
+ *
  * This single endpoint can handle ANY workflow without code changes.
  * Workflows are defined in JSON/YAML and stored in the database.
- * 
+ *
  * No need for workflow-specific endpoints!
  */
 
@@ -59,106 +59,105 @@ router.use(authMiddleware);
  *       500:
  *         description: Execution failed
  */
-router.post('/workflows/execute', asyncHandler(async (req, res) => {
-  const { workflowId, templateId, input = {}, variables = {}, metadata = {} } = req.body;
+router.post(
+  "/workflows/execute",
+  asyncHandler(async (req, res) => {
+    const { workflowId, templateId, input = {}, variables = {}, metadata = {} } = req.body;
 
-  // Validate required fields
-  if (!workflowId && !templateId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required field',
-      message: 'Either workflowId or templateId is required'
-    });
-  }
-
-  try {
-    let workflow;
-    
-    if (templateId) {
-      // Find workflow by template ID
-      workflow = await workflowService.getWorkflowByTemplateId(templateId);
-    } else {
-      // Find workflow by ID
-      workflow = await workflowService.getWorkflowById(workflowId);
-    }
-
-    if (!workflow) {
-      return res.status(404).json({
+    // Validate required fields
+    if (!workflowId && !templateId) {
+      return res.status(400).json({
         success: false,
-        error: 'Workflow not found',
-        message: `No workflow found with ${templateId ? 'templateId' : 'workflowId'}: ${templateId || workflowId}`
+        error: "Missing required field",
+        message: "Either workflowId or templateId is required",
       });
     }
 
-    // Merge input data with variables
-    const executionInput = {
-      ...input,
-      ...variables,
-      _metadata: {
-        ...metadata,
-        executionType: 'universal',
-        timestamp: new Date().toISOString(),
-        source: 'universal-workflow-engine'
+    try {
+      let workflow;
+
+      if (templateId) {
+        // Find workflow by template ID
+        workflow = await workflowService.getWorkflowByTemplateId(templateId);
+      } else {
+        // Find workflow by ID
+        workflow = await workflowService.getWorkflowById(workflowId);
       }
-    };
 
-    // Execute the workflow
-    const executionResult = await workflowExecutionService.executeWorkflow(
-      workflow,
-      req.user?.id || 'anonymous',
-      executionInput,
-      { metadata }
-    );
+      if (!workflow) {
+        return res.status(404).json({
+          success: false,
+          error: "Workflow not found",
+          message: `No workflow found with ${templateId ? "templateId" : "workflowId"}: ${templateId || workflowId}`,
+        });
+      }
 
-    // Check if this workflow was imported from Noam and send notification
-    if (workflow.noamIntegration && workflow.noamIntegration.imported) {
-      try {
-        await sendNoamTaskNotification({
+      // Merge input data with variables
+      const executionInput = {
+        ...input,
+        ...variables,
+        _metadata: {
+          ...metadata,
+          executionType: "universal",
+          timestamp: new Date().toISOString(),
+          source: "universal-workflow-engine",
+        },
+      };
+
+      // Execute the workflow
+      const executionResult = await workflowExecutionService.executeWorkflow(workflow, req.user?.id || "anonymous", executionInput, { metadata });
+
+      // Check if this workflow was imported from Noam and send notification
+      if (workflow.noamIntegration && workflow.noamIntegration.imported) {
+        try {
+          await sendNoamTaskNotification({
+            executionId: executionResult.executionId,
+            workflowId: workflow.id,
+            templateId: workflow.templateId,
+            noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
+            noamAccountId: workflow.noamIntegration.noamAccountId,
+            noamUserId: workflow.noamIntegration.noamUserId,
+            status: "started",
+            taskData: {
+              title: `${workflow.name} - Execution Started`,
+              description: `Workflow execution ${executionResult.executionId} has been started`,
+              inputs: executionInput,
+            },
+          });
+        } catch (notificationError) {
+          console.error("Failed to notify Noam:", notificationError.message);
+          // Don't fail the execution if notification fails
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Workflow execution started",
+        data: {
           executionId: executionResult.executionId,
           workflowId: workflow.id,
+          workflowName: workflow.name,
           templateId: workflow.templateId,
-          noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
-          noamAccountId: workflow.noamIntegration.noamAccountId,
-          noamUserId: workflow.noamIntegration.noamUserId,
-          status: 'started',
-          taskData: {
-            title: `${workflow.name} - Execution Started`,
-            description: `Workflow execution ${executionResult.executionId} has been started`,
-            inputs: executionInput
-          }
-        });
-      } catch (notificationError) {
-        console.error('Failed to notify Noam:', notificationError.message);
-        // Don't fail the execution if notification fails
-      }
+          status: "started",
+          input: executionInput,
+          noamIntegration: workflow.noamIntegration
+            ? {
+                noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
+                notificationSent: true,
+              }
+            : null,
+        },
+      });
+    } catch (error) {
+      console.error("Universal workflow execution error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Workflow execution failed",
+        message: error.message,
+      });
     }
-
-    res.status(200).json({
-      success: true,
-      message: 'Workflow execution started',
-      data: {
-        executionId: executionResult.executionId,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        templateId: workflow.templateId,
-        status: 'started',
-        input: executionInput,
-        noamIntegration: workflow.noamIntegration ? {
-          noamWorkflowId: workflow.noamIntegration.noamWorkflowId,
-          notificationSent: true
-        } : null
-      }
-    });
-
-  } catch (error) {
-    console.error('Universal workflow execution error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Workflow execution failed',
-      message: error.message
-    });
-  }
-}));
+  })
+);
 
 /**
  * @swagger
@@ -206,89 +205,91 @@ router.post('/workflows/execute', asyncHandler(async (req, res) => {
  *       500:
  *         description: Scheduling failed
  */
-router.post('/workflows/schedule', asyncHandler(async (req, res) => {
-  const { workflowId, templateId, schedule, input = {}, timezone = 'UTC', enabled = true } = req.body;
+router.post(
+  "/workflows/schedule",
+  asyncHandler(async (req, res) => {
+    const { workflowId, templateId, schedule, input = {}, timezone = "UTC", enabled = true } = req.body;
 
-  if (!workflowId && !templateId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required field',
-      message: 'Either workflowId or templateId is required'
-    });
-  }
-
-  if (!schedule) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required field',
-      message: 'Schedule is required'
-    });
-  }
-
-  try {
-    let workflow;
-    
-    if (templateId) {
-      workflow = await workflowService.getWorkflowByTemplateId(templateId);
-    } else {
-      workflow = await workflowService.getWorkflowById(workflowId);
-    }
-
-    if (!workflow) {
-      return res.status(404).json({
+    if (!workflowId && !templateId) {
+      return res.status(400).json({
         success: false,
-        error: 'Workflow not found',
-        message: `No workflow found with ${templateId ? 'templateId' : 'workflowId'}: ${templateId || workflowId}`
+        error: "Missing required field",
+        message: "Either workflowId or templateId is required",
       });
     }
 
-    // Create schedule record
-    const scheduleData = {
-      workflowId: workflow.id,
-      templateId: workflow.templateId,
-      schedule: schedule,
-      input: input,
-      timezone: timezone,
-      enabled: enabled,
-      createdAt: new Date(),
-      createdBy: req.user?.id || 'system'
-    };
+    if (!schedule) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required field",
+        message: "Schedule is required",
+      });
+    }
 
-    // TODO: Store schedule in database and set up actual cron job
-    // For now, we'll use the scheduler tool
-    const scheduleResult = await workflowExecutionService.langChainService.tools.get('scheduler').func(
-      JSON.stringify({
-        workflowId: workflow.id,
-        schedule: schedule,
-        timezone: timezone
-      })
-    );
+    try {
+      let workflow;
 
-    const scheduleResponse = JSON.parse(scheduleResult);
-
-    res.status(200).json({
-      success: true,
-      message: 'Workflow scheduled successfully',
-      data: {
-        scheduleId: scheduleResponse.schedule?.id,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        schedule: schedule,
-        timezone: timezone,
-        nextRun: scheduleResponse.schedule?.nextRun,
-        enabled: enabled
+      if (templateId) {
+        workflow = await workflowService.getWorkflowByTemplateId(templateId);
+      } else {
+        workflow = await workflowService.getWorkflowById(workflowId);
       }
-    });
 
-  } catch (error) {
-    console.error('Universal workflow scheduling error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Workflow scheduling failed',
-      message: error.message
-    });
-  }
-}));
+      if (!workflow) {
+        return res.status(404).json({
+          success: false,
+          error: "Workflow not found",
+          message: `No workflow found with ${templateId ? "templateId" : "workflowId"}: ${templateId || workflowId}`,
+        });
+      }
+
+      // Create schedule record
+      const scheduleData = {
+        workflowId: workflow.id,
+        templateId: workflow.templateId,
+        schedule: schedule,
+        input: input,
+        timezone: timezone,
+        enabled: enabled,
+        createdAt: new Date(),
+        createdBy: req.user?.id || "system",
+      };
+
+      // TODO: Store schedule in database and set up actual cron job
+      // For now, we'll use the scheduler tool
+      const scheduleResult = await workflowExecutionService.langChainService.tools.get("scheduler").func(
+        JSON.stringify({
+          workflowId: workflow.id,
+          schedule: schedule,
+          timezone: timezone,
+        })
+      );
+
+      const scheduleResponse = JSON.parse(scheduleResult);
+
+      res.status(200).json({
+        success: true,
+        message: "Workflow scheduled successfully",
+        data: {
+          scheduleId: scheduleResponse.schedule?.id,
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          schedule: schedule,
+          timezone: timezone,
+          nextRun: scheduleResponse.schedule?.nextRun,
+          enabled: enabled,
+        },
+      });
+    } catch (error) {
+      console.error("Universal workflow scheduling error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Workflow scheduling failed",
+        message: error.message,
+      });
+    }
+  })
+);
 
 /**
  * @swagger
@@ -324,84 +325,83 @@ router.post('/workflows/schedule', asyncHandler(async (req, res) => {
  *       500:
  *         description: Trigger failed
  */
-router.post('/workflows/trigger', asyncHandler(async (req, res) => {
-  const { eventType, data = {}, source } = req.body;
+router.post(
+  "/workflows/trigger",
+  asyncHandler(async (req, res) => {
+    const { eventType, data = {}, source } = req.body;
 
-  if (!eventType) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required field',
-      message: 'eventType is required'
-    });
-  }
-
-  try {
-    // Find all workflows that are triggered by this event type
-    const workflows = await workflowService.getWorkflowsByTriggerType(eventType);
-
-    if (!workflows || workflows.length === 0) {
-      return res.status(404).json({
+    if (!eventType) {
+      return res.status(400).json({
         success: false,
-        error: 'No workflows found',
-        message: `No workflows configured to handle event type: ${eventType}`
+        error: "Missing required field",
+        message: "eventType is required",
       });
     }
 
-    const executionResults = [];
+    try {
+      // Find all workflows that are triggered by this event type
+      const workflows = await workflowService.getWorkflowsByTriggerType(eventType);
 
-    // Execute all matching workflows
-    for (const workflow of workflows) {
-      try {
-        const executionInput = {
-          ...data,
-          _event: {
-            type: eventType,
-            source: source,
-            timestamp: new Date().toISOString()
-          }
-        };
-
-        const executionResult = await workflowExecutionService.executeWorkflow(
-          workflow.id,
-          executionInput
-        );
-
-        executionResults.push({
-          workflowId: workflow.id,
-          workflowName: workflow.name,
-          executionId: executionResult.executionId,
-          status: 'started'
-        });
-      } catch (error) {
-        executionResults.push({
-          workflowId: workflow.id,
-          workflowName: workflow.name,
-          status: 'failed',
-          error: error.message
+      if (!workflows || workflows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "No workflows found",
+          message: `No workflows configured to handle event type: ${eventType}`,
         });
       }
+
+      const executionResults = [];
+
+      // Execute all matching workflows
+      for (const workflow of workflows) {
+        try {
+          const executionInput = {
+            ...data,
+            _event: {
+              type: eventType,
+              source: source,
+              timestamp: new Date().toISOString(),
+            },
+          };
+
+          const executionResult = await workflowExecutionService.executeWorkflow(workflow.id, executionInput);
+
+          executionResults.push({
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            executionId: executionResult.executionId,
+            status: "started",
+          });
+        } catch (error) {
+          executionResults.push({
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            status: "failed",
+            error: error.message,
+          });
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Triggered ${executionResults.filter((r) => r.status === "started").length} workflows for event: ${eventType}`,
+        data: {
+          eventType: eventType,
+          triggeredWorkflows: executionResults.filter((r) => r.status === "started"),
+          failedWorkflows: executionResults.filter((r) => r.status === "failed"),
+          totalFound: workflows.length,
+        },
+      });
+    } catch (error) {
+      console.error("Universal workflow trigger error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Workflow trigger failed",
+        message: error.message,
+      });
     }
-
-    res.status(200).json({
-      success: true,
-      message: `Triggered ${executionResults.filter(r => r.status === 'started').length} workflows for event: ${eventType}`,
-      data: {
-        eventType: eventType,
-        triggeredWorkflows: executionResults.filter(r => r.status === 'started'),
-        failedWorkflows: executionResults.filter(r => r.status === 'failed'),
-        totalFound: workflows.length
-      }
-    });
-
-  } catch (error) {
-    console.error('Universal workflow trigger error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Workflow trigger failed',
-      message: error.message
-    });
-  }
-}));
+  })
+);
 
 /**
  * @swagger
@@ -423,47 +423,49 @@ router.post('/workflows/trigger', asyncHandler(async (req, res) => {
  *       404:
  *         description: Execution not found
  */
-router.get('/executions/:executionId/status', asyncHandler(async (req, res) => {
-  const { executionId } = req.params;
+router.get(
+  "/executions/:executionId/status",
+  asyncHandler(async (req, res) => {
+    const { executionId } = req.params;
 
-  try {
-    const execution = await workflowExecutionService.getExecutionStatus(executionId);
+    try {
+      const execution = await workflowExecutionService.getExecutionStatus(executionId);
 
-    if (!execution) {
-      return res.status(404).json({
+      if (!execution) {
+        return res.status(404).json({
+          success: false,
+          error: "Execution not found",
+          message: `No execution found with ID: ${executionId}`,
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          executionId: execution.executionId,
+          workflowId: execution.workflowId,
+          status: execution.status,
+          inputs: execution.inputs,
+          outputs: execution.outputs,
+          executionSteps: execution.steps || execution.executionSteps || [],
+          metrics: execution.metrics,
+          logs: execution.logs,
+          error: execution.error,
+          startTime: execution.createdAt,
+          endTime: execution.metrics?.endTime,
+          duration: execution.metrics?.duration,
+        },
+      });
+    } catch (error) {
+      console.error("Universal execution status error:", error);
+      res.status(500).json({
         success: false,
-        error: 'Execution not found',
-        message: `No execution found with ID: ${executionId}`
+        error: "Failed to get execution status",
+        message: error.message,
       });
     }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        executionId: execution.executionId,
-        workflowId: execution.workflowId,
-        status: execution.status,
-        inputs: execution.inputs,
-        outputs: execution.outputs,
-        executionSteps: execution.executionSteps,
-        metrics: execution.metrics,
-        logs: execution.logs,
-        error: execution.error,
-        startTime: execution.createdAt,
-        endTime: execution.metrics?.endTime,
-        duration: execution.metrics?.duration
-      }
-    });
-
-  } catch (error) {
-    console.error('Universal execution status error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get execution status',
-      message: error.message
-    });
-  }
-}));
+  })
+);
 
 /**
  * @swagger
@@ -476,59 +478,60 @@ router.get('/executions/:executionId/status', asyncHandler(async (req, res) => {
  *       200:
  *         description: List of available tools
  */
-router.get('/tools', asyncHandler(async (req, res) => {
-  try {
-    const langChainService = workflowExecutionService.langChainService;
-    const tools = [];
+router.get(
+  "/tools",
+  asyncHandler(async (req, res) => {
+    try {
+      const langChainService = workflowExecutionService.langChainService;
+      const tools = [];
 
-    // Get all available tools
-    for (const [toolName, tool] of langChainService.tools.entries()) {
-      tools.push({
-        name: toolName,
-        description: tool.description || 'No description available',
-        type: tool.constructor.name
+      // Get all available tools
+      for (const [toolName, tool] of langChainService.tools.entries()) {
+        tools.push({
+          name: toolName,
+          description: tool.description || "No description available",
+          type: tool.constructor.name,
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Found ${tools.length} available tools`,
+        data: {
+          tools: tools.sort((a, b) => a.name.localeCompare(b.name)),
+          totalCount: tools.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching tools:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch tools",
+        message: error.message,
       });
     }
-
-    res.status(200).json({
-      success: true,
-      message: `Found ${tools.length} available tools`,
-      data: {
-        tools: tools.sort((a, b) => a.name.localeCompare(b.name)),
-        totalCount: tools.length
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching tools:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch tools',
-      message: error.message
-    });
-  }
-}));
+  })
+);
 
 // Helper function to send task notifications to Noam
 async function sendNoamTaskNotification(notificationData) {
   try {
-    const axios = require('axios');
-    
+    const axios = require("axios");
+
     // Send notification via internal webhook endpoint
-    const webhookUrl = `${process.env.BASE_URL || 'http://localhost:8000'}/api/webhooks/noam/task-notifications`;
-    
+    const webhookUrl = `${process.env.BASE_URL || "http://localhost:8000"}/api/webhooks/noam/task-notifications`;
+
     await axios.post(webhookUrl, notificationData, {
       headers: {
-        'Content-Type': 'application/json',
-        'X-Source': 'universal-engine-internal'
+        "Content-Type": "application/json",
+        "X-Source": "universal-engine-internal",
       },
-      timeout: 5000
+      timeout: 5000,
     });
 
     console.log(`✅ Noam notification sent for execution ${notificationData.executionId}`);
-    
   } catch (error) {
-    console.error('❌ Failed to send Noam notification:', error.message);
+    console.error("❌ Failed to send Noam notification:", error.message);
     throw error;
   }
 }
