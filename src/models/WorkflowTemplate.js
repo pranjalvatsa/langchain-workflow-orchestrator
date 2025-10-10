@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 /**
- * WorkflowTemplate Schema
+ * Workflow Template Schema
  *
  * Stores reusable workflow templates that can be imported into
  * the Noam app for visual editing and customization.
