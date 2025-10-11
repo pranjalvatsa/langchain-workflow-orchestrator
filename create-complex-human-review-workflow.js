@@ -143,11 +143,11 @@ async function createComplexWorkflow() {
 
     console.log('✅ Complex workflow created successfully!');
     console.log('Workflow ID:', response.data.data.workflow._id);
-    console.log('Template ID:', response.data.data.template._id);
+    console.log('Template ID:', response.data.data.template.templateId);
     
     return {
       workflowId: response.data.data.workflow._id,
-      templateId: response.data.data.template._id
+      templateId: response.data.data.template.templateId
     };
     
   } catch (error) {

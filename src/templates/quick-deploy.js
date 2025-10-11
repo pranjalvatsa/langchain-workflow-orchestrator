@@ -90,9 +90,9 @@ async function deployTemplates() {
           await template.save();
         }
         
-        console.log(`   ✅ Saved: ${template._id}`);
+        console.log(`   ✅ Saved: ${template.templateId}`);
         savedTemplates.push({
-          _id: template._id,
+          _id: template.templateId,
           name: template.name,
           templateId: template.templateId,
           metadata: {
@@ -112,7 +112,7 @@ async function deployTemplates() {
     
     savedTemplates.forEach((template, i) => {
       console.log(`   ${i + 1}. ${template.name} (${template.templateId})`);
-      console.log(`      Database ID: ${template._id}`);
+      console.log(`      Database ID: ${template.templateId}`);
       console.log(`      Nodes: ${template.metadata.nodeCount}, Edges: ${template.metadata.edgeCount}`);
     });
 
@@ -123,7 +123,7 @@ async function deployTemplates() {
     
     console.log('\\n📋 Individual ReactFlow exports:');
     savedTemplates.forEach(template => {
-      console.log(`   GET http://localhost:8000/api/templates/${template._id}/reactflow`);
+      console.log(`   GET http://localhost:8000/api/templates/${template.templateId}/reactflow`);
     });
 
     console.log('\\n🚀 Universal Engine Examples:');

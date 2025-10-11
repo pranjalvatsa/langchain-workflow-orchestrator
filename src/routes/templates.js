@@ -721,7 +721,7 @@ router.post(
         message: "Workflow successfully imported from Noam",
         data: {
           templateId: savedTemplate.templateId,
-          _id: savedTemplate._id,
+          _id: savedTemplate.templateId || null,
           name: savedTemplate.name,
           category: savedTemplate.category,
 
