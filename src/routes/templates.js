@@ -399,8 +399,9 @@ router.post(
       };
 
       // Update download tracking
+      // Update download tracking using templateId instead of _id
       await WorkflowTemplate.updateMany(
-        { _id: { $in: templates.map((t) => t._id) } },
+        { templateId: { $in: templates.map((t) => t.templateId) } },
         {
           $inc: { downloadCount: 1 },
           $set: { lastDownloaded: new Date() },
