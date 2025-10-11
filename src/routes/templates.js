@@ -109,6 +109,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
     let template = await WorkflowTemplate.findOne({ templateId: templateId, active: true }).select("-template.nodes.config.secrets -template.configuration.secrets");
+    console.log("Fetching template......", templateId, "Found:", !!template);
     if (!template) {
       // Try MongoDB _id fallback
       try {
