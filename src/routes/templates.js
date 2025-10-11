@@ -201,6 +201,9 @@ router.post(
     const workflow = await workflowService.createWorkflow(workflowData, userId);
 
     // Update template usage analytics
+    if (!template.analytics) {
+      template.analytics = { uses: 0, lastUsed: null, views: 0 };
+    }
     template.analytics.uses += 1;
     template.analytics.lastUsed = new Date();
     await template.save();
