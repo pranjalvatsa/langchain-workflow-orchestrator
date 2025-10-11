@@ -451,7 +451,7 @@ class WorkflowService {
       console.log(`📋 Template found:`, template ? "YES" : "NO");
       if (template) {
         console.log(`📋 Template details:`, {
-          id: template._id,
+          id: template.templateId || null,
           templateId: template.templateId,
           name: template.name,
           nodesCount: template.nodes?.length || 0,
@@ -508,8 +508,8 @@ class WorkflowService {
         });
 
         return {
-          _id: template._id,
-          id: template._id,
+          _id: template.templateId || null,
+          id: template.templateId || null,
           templateId: template.templateId,
           name: template.name,
           description: template.description,
