@@ -6,16 +6,9 @@ const { Tool } = require("@langchain/core/tools");
 const { DynamicTool } = require("@langchain/community/tools/dynamic");
 const { Calculator } = require("@langchain/community/tools/calculator");
 const { SerpAPI } = require("@langchain/community/tools/serpapi");
-const winston = require("winston");
 
 class LangChainService {
   constructor() {
-    this.logger = winston.createLogger({
-      level: "info",
-      format: winston.format.json(),
-      transports: [new winston.transports.Console(), new winston.transports.File({ filename: "logs/langchain.log" })],
-    });
-
     // Initialize models
     this.models = {
       "gpt-4": new ChatOpenAI({
@@ -243,34 +236,54 @@ class LangChainService {
         description: "Create human approval tasks in Noam app",
         func: async (input) => {
           try {
-            const { taskTitle, taskDescription, taskData, priority = "medium", assignee, workflowExecutionId } = JSON.parse(input);
+            const { taskTitle, taskDescription, taskData, priority = "medium", assignee, workflowExecutionId, roleId, timeout = 86400000, noamApiToken, noamApiBaseUrl } = JSON.parse(input);
 
-            // For now, simulate task creation - replace with actual Noam API call
-            const mockTaskId = `TASK_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // Validate required parameters
+            if (!noamApiToken || !noamApiBaseUrl) {
+              throw new Error("Missing required API credentials: noamApiToken and noamApiBaseUrl");
+            }
 
+            if (!roleId) {
+              throw new Error("Missing required parameter: roleId");
+            }
+
+            // Calculate due date from timeout
+            const dueDate = new Date(Date.now() + timeout).toISOString();
+
+            // Prepare task payload for NoamVisionBE API
             const taskPayload = {
-              id: mockTaskId,
+              roleId: roleId,
               title: taskTitle,
               description: taskDescription,
+              workflowId: workflowExecutionId,
+              nodeId: "human-review-node",
               data: taskData,
+              dueDate: dueDate,
               priority: priority,
-              assignee: assignee || "unassigned",
-              status: "pending",
-              workflowExecutionId: workflowExecutionId,
-              createdAt: new Date().toISOString(),
-              dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
+              assignee: assignee || "",
             };
 
-            // TODO: Replace with actual Noam API call
-            // const response = await this.callNoamTaskAPI(taskPayload);
-
-            return JSON.stringify({
-              success: true,
-              taskId: mockTaskId,
-              taskData: taskPayload,
-              message: "Task created successfully in Noam app",
-              timestamp: new Date().toISOString(),
+            // Make actual API call to NoamVisionBE
+            const axios = require("axios");
+            const response = await axios.post(`${noamApiBaseUrl}/api/tasks`, taskPayload, {
+              headers: {
+                Authorization: `Bearer ${noamApiToken}`,
+                "Content-Type": "application/json",
+              },
+              timeout: 30000, // 30 second timeout
             });
+
+            if (response.data && response.data.success) {
+              return JSON.stringify({
+                success: true,
+                taskId: response.data.data.id,
+                taskData: response.data.data,
+                message: "Task created successfully in NoamVisionBE",
+                timestamp: new Date().toISOString(),
+              });
+            } else {
+              throw new Error(`API call failed: ${response.data?.message || "Unknown error"}`);
+            }
           } catch (error) {
             return JSON.stringify({
               error: error.message,
@@ -290,28 +303,49 @@ class LangChainService {
         description: "Poll task status from Noam app and wait for completion",
         func: async (input) => {
           try {
-            const { taskId, maxWaitTime = 300000, pollInterval = 5000 } = JSON.parse(input); // 5 min max, poll every 5 sec
+            const { taskId, maxWaitTime = 300000, pollInterval = 5000, noamApiToken, noamApiBaseUrl } = JSON.parse(input); // 5 min max, poll every 5 sec
+
+            // Validate required parameters
+            if (!noamApiToken || !noamApiBaseUrl) {
+              throw new Error("Missing required API credentials: noamApiToken and noamApiBaseUrl");
+            }
 
             const startTime = Date.now();
+            const axios = require("axios");
 
             while (Date.now() - startTime < maxWaitTime) {
-              // TODO: Replace with actual Noam API call to check task status
-              // For now, simulate random completion after some time
-              const elapsedTime = Date.now() - startTime;
-
-              if (elapsedTime > 10000) {
-                // Simulate task completion after 10 seconds
-                const mockDecision = Math.random() > 0.3 ? "approved" : "rejected";
-
-                return JSON.stringify({
-                  success: true,
-                  taskId: taskId,
-                  status: "completed",
-                  decision: mockDecision,
-                  feedback: mockDecision === "approved" ? "Offer looks good, approved for customer" : "Offer needs refinement, rejected",
-                  completedAt: new Date().toISOString(),
-                  waitTime: elapsedTime,
+              try {
+                // Make actual API call to check task status
+                const response = await axios.get(`${noamApiBaseUrl}/api/tasks/${taskId}`, {
+                  headers: {
+                    Authorization: `Bearer ${noamApiToken}`,
+                    "Content-Type": "application/json",
+                  },
+                  timeout: 10000, // 10 second timeout for each poll
                 });
+
+                if (response.data && response.data.success) {
+                  const taskData = response.data.data;
+
+                  // Check if task is completed
+                  if (taskData.status === "completed" || taskData.status === "approved" || taskData.status === "rejected") {
+                    return JSON.stringify({
+                      success: true,
+                      taskId: taskId,
+                      status: "completed",
+                      decision: taskData.decision || (taskData.status === "approved" ? "approved" : "rejected"),
+                      feedback: taskData.feedback || taskData.comments || "Task completed",
+                      completedAt: taskData.completedAt || taskData.updatedAt || new Date().toISOString(),
+                      waitTime: Date.now() - startTime,
+                    });
+                  }
+
+                  // Task is still pending, continue polling
+                } else {
+                  // Failed to get task status, continue polling
+                }
+              } catch (pollError) {
+                // Continue polling even if one poll fails
               }
 
               // Wait before next poll
@@ -616,8 +650,6 @@ class LangChainService {
         },
       })
     );
-
-    this.logger.info(`Initialized ${this.tools.size} tools`);
   }
 
   calculateNextRun(schedule) {
@@ -639,7 +671,6 @@ class LangChainService {
         inputVariables,
       });
     } catch (error) {
-      this.logger.error("Error creating prompt template:", error);
       throw error;
     }
   }
@@ -653,7 +684,6 @@ class LangChainService {
         prompt: promptTemplate,
       });
     } catch (error) {
-      this.logger.error("Error creating chain:", error);
       throw error;
     }
   }
@@ -670,13 +700,12 @@ class LangChainService {
           return await this.executeEndNode(nodeConfig, context);
 
         case "llm":
-          return await this.executeLLMNode(nodeConfig.data || config, model, context);
+          return await this.executeLLMNode(nodeConfig.config || config, model, context);
 
         case "tool":
-          return await this.executeToolNode(nodeConfig.data || config, context);
+          return await this.executeToolNode(nodeConfig.config || config, context);
 
         case "human_review":
-          console.log("Executing human review node:", nodeConfig.id);
           return await this.executeHumanReviewNode(nodeConfig, context);
 
         case "prompt":
@@ -695,7 +724,6 @@ class LangChainService {
           throw new Error(`Unknown node type: ${type}`);
       }
     } catch (error) {
-      this.logger.error(`Error executing node ${nodeConfig.id}:`, error);
       throw error;
     }
   }
@@ -984,7 +1012,6 @@ class LangChainService {
       // If no comparison found, treat as boolean
       return Boolean(processedCondition);
     } catch (error) {
-      this.logger.error("Error evaluating condition:", error);
       return false;
     }
   }
@@ -997,7 +1024,6 @@ class LangChainService {
       const match = contextString.match(regex);
       return match ? match[1] || match[0] : null;
     } catch (error) {
-      this.logger.error("Error extracting data:", error);
       return null;
     }
   }
@@ -1051,7 +1077,6 @@ class LangChainService {
         warnings,
       };
     } catch (error) {
-      this.logger.error("Error validating workflow:", error);
       return {
         valid: false,
         errors: [error.message],
@@ -1066,12 +1091,6 @@ class LangChainService {
   async executeStartNode(nodeConfig, context = {}) {
     const { data = {} } = nodeConfig;
     const { parameters = {} } = data;
-
-    this.logger.info("Executing start node:", {
-      nodeId: nodeConfig.id,
-      parameters: Object.keys(parameters),
-      contextKeys: Object.keys(context),
-    });
 
     // Start nodes should pass through the actual input values, not the parameter schemas
     // Extract actual values from context based on parameter names
@@ -1109,12 +1128,6 @@ class LangChainService {
     const { data = {} } = nodeConfig;
     const { output = {} } = data;
 
-    this.logger.info("Executing end node:", {
-      nodeId: nodeConfig.id,
-      outputKeys: Object.keys(output),
-      contextKeys: Object.keys(context),
-    });
-
     // End nodes format the final output
     // Replace template variables in output with actual values from context
     const result = this.processPromptVariables(output, context);
@@ -1136,12 +1149,6 @@ class LangChainService {
   async executeHumanReviewNode(nodeConfig, context = {}) {
     const { data = {} } = nodeConfig;
     const { label = "Human Review Required", reviewType = "approval", instructions = "Please review this workflow step", reviewData = {}, externalTask = {} } = data;
-
-    this.logger.info("Executing human review node:", {
-      nodeId: nodeConfig.id,
-      reviewType,
-      hasExternalTask: !!externalTask.enabled,
-    });
 
     // Process review data with context variables
     const processedReviewData = this.processPromptVariables(reviewData, context);

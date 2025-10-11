@@ -125,7 +125,6 @@ router.post(
             },
           });
         } catch (notificationError) {
-          console.error("Failed to notify Noam:", notificationError.message);
           // Don't fail the execution if notification fails
         }
       }
@@ -149,7 +148,6 @@ router.post(
         },
       });
     } catch (error) {
-      console.error("Universal workflow execution error:", error);
       res.status(500).json({
         success: false,
         error: "Workflow execution failed",
@@ -281,7 +279,6 @@ router.post(
         },
       });
     } catch (error) {
-      console.error("Universal workflow scheduling error:", error);
       res.status(500).json({
         success: false,
         error: "Workflow scheduling failed",
@@ -393,7 +390,6 @@ router.post(
         },
       });
     } catch (error) {
-      console.error("Universal workflow trigger error:", error);
       res.status(500).json({
         success: false,
         error: "Workflow trigger failed",
@@ -457,7 +453,6 @@ router.get(
         },
       });
     } catch (error) {
-      console.error("Universal execution status error:", error);
       res.status(500).json({
         success: false,
         error: "Failed to get execution status",
@@ -503,7 +498,6 @@ router.get(
         },
       });
     } catch (error) {
-      console.error("Error fetching tools:", error);
       res.status(500).json({
         success: false,
         error: "Failed to fetch tools",
@@ -528,10 +522,7 @@ async function sendNoamTaskNotification(notificationData) {
       },
       timeout: 5000,
     });
-
-    console.log(`✅ Noam notification sent for execution ${notificationData.executionId}`);
   } catch (error) {
-    console.error("❌ Failed to send Noam notification:", error.message);
     throw error;
   }
 }

@@ -1,69 +1,50 @@
-const { Workflow, WorkflowTemplate } = require('../models');
-const LangChainService = require('./LangChainService');
-const winston = require('winston');
+const { Workflow, WorkflowTemplate } = require("../models");
+const LangChainService = require("./LangChainService");
 
 class WorkflowService {
   constructor() {
     this.langChainService = new LangChainService();
-    
-    this.logger = winston.createLogger({
-      level: 'info',
-      format: winston.format.json(),
-      transports: [
-        new winston.transports.Console(),
-        new winston.transports.File({ filename: 'logs/workflow.log' })
-      ]
-    });
   }
 
   async createWorkflow(workflowData, userId) {
     try {
-      const {
-        name,
-        description,
-        nodes = [],
-        edges = [],
-        configuration = {},
-        tags = [],
-        category = 'general'
-      } = workflowData;
+      const { name, description, nodes = [], edges = [], configuration = {}, tags = [], category = "general", noamAccountId } = workflowData;
 
       // Validate workflow structure
       const validation = await this.validateWorkflow({ nodes, edges });
       if (!validation.valid) {
-        throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
+        throw new Error(`Workflow validation failed: ${validation.errors.join(", ")}`);
       }
 
       // Create workflow
       const workflow = new Workflow({
         name,
         description,
-        ownerId: userId,
+        owner: userId,
+        noamAccountId: noamAccountId || "default-account",
         nodes: this.processNodes(nodes),
         edges: this.processEdges(edges),
         configuration: {
           maxConcurrentExecutions: configuration.maxConcurrentExecutions || 5,
           timeoutMinutes: configuration.timeoutMinutes || 30,
-          retryPolicy: configuration.retryPolicy || 'none',
-          ...configuration
+          retryPolicy: configuration.retryPolicy || "none",
+          ...configuration,
         },
         metadata: {
           tags,
           category,
           nodeCount: nodes.length,
           edgeCount: edges.length,
-          complexity: this.calculateComplexity(nodes, edges)
+          complexity: this.calculateComplexity(nodes, edges),
         },
-        version: '1.0.0',
-        status: 'draft'
+        version: "1.0.0",
+        status: "draft",
       });
 
       await workflow.save();
 
-      this.logger.info(`Workflow created: ${workflow._id} by user ${userId}`);
       return workflow;
     } catch (error) {
-      this.logger.error('Error creating workflow:', error);
       throw error;
     }
   }
@@ -71,23 +52,23 @@ class WorkflowService {
   async updateWorkflow(workflowId, updates, userId) {
     try {
       const workflow = await Workflow.findById(workflowId);
-      
+
       if (!workflow) {
-        throw new Error('Workflow not found');
+        throw new Error("Workflow not found");
       }
 
-      if (workflow.ownerId.toString() !== userId) {
-        throw new Error('Unauthorized to update this workflow');
+      if (workflow.owner.toString() !== userId) {
+        throw new Error("Unauthorized to update this workflow");
       }
 
       // If updating nodes/edges, validate the workflow
       if (updates.nodes || updates.edges) {
         const nodes = updates.nodes || workflow.nodes;
         const edges = updates.edges || workflow.edges;
-        
+
         const validation = await this.validateWorkflow({ nodes, edges });
         if (!validation.valid) {
-          throw new Error(`Workflow validation failed: ${validation.errors.join(', ')}`);
+          throw new Error(`Workflow validation failed: ${validation.errors.join(", ")}`);
         }
 
         // Process nodes and edges
@@ -104,28 +85,22 @@ class WorkflowService {
           nodeCount: nodes.length,
           edgeCount: edges.length,
           complexity: this.calculateComplexity(nodes, edges),
-          lastModified: new Date()
+          lastModified: new Date(),
         };
       }
 
       // Create new version if major changes
       if (this.isMajorChange(workflow, updates)) {
         updates.version = this.incrementVersion(workflow.version);
-        
+
         // Archive current version
         await this.archiveVersion(workflow);
       }
 
-      const updatedWorkflow = await Workflow.findByIdAndUpdate(
-        workflowId,
-        { $set: updates },
-        { new: true }
-      );
+      const updatedWorkflow = await Workflow.findByIdAndUpdate(workflowId, { $set: updates }, { new: true });
 
-      this.logger.info(`Workflow updated: ${workflowId} by user ${userId}`);
       return updatedWorkflow;
     } catch (error) {
-      this.logger.error('Error updating workflow:', error);
       throw error;
     }
   }
@@ -133,21 +108,18 @@ class WorkflowService {
   async getWorkflow(workflowId, userId) {
     try {
       const workflow = await Workflow.findById(workflowId);
-      
+
       if (!workflow) {
-        throw new Error('Workflow not found');
+        throw new Error("Workflow not found");
       }
 
       // Check permissions
-      if (workflow.ownerId.toString() !== userId && 
-          !workflow.sharing.collaborators.some(c => c.userId.toString() === userId) &&
-          workflow.sharing.public !== true) {
-        throw new Error('Unauthorized to access this workflow');
+      if (workflow.owner.toString() !== userId && !workflow.sharing.collaborators.some((c) => c.userId.toString() === userId) && workflow.sharing.public !== true) {
+        throw new Error("Unauthorized to access this workflow");
       }
 
       return workflow;
     } catch (error) {
-      this.logger.error('Error getting workflow:', error);
       throw error;
     }
   }
@@ -155,11 +127,7 @@ class WorkflowService {
   async listWorkflows(userId, filters = {}) {
     try {
       const query = {
-        $or: [
-          { ownerId: userId },
-          { 'sharing.collaborators.userId': userId },
-          { 'sharing.public': true }
-        ]
+        $or: [{ owner: userId }, { "sharing.collaborators.userId": userId }, { "sharing.public": true }],
       };
 
       // Apply filters
@@ -168,11 +136,11 @@ class WorkflowService {
       }
 
       if (filters.category) {
-        query['metadata.category'] = filters.category;
+        query["metadata.category"] = filters.category;
       }
 
       if (filters.tags && filters.tags.length > 0) {
-        query['metadata.tags'] = { $in: filters.tags };
+        query["metadata.tags"] = { $in: filters.tags };
       }
 
       if (filters.search) {
@@ -180,13 +148,12 @@ class WorkflowService {
       }
 
       const workflows = await Workflow.find(query)
-        .sort({ 'metadata.lastModified': -1 })
+        .sort({ "metadata.lastModified": -1 })
         .limit(filters.limit || 50)
         .skip(filters.offset || 0);
 
       return workflows;
     } catch (error) {
-      this.logger.error('Error listing workflows:', error);
       throw error;
     }
   }
@@ -194,21 +161,19 @@ class WorkflowService {
   async deleteWorkflow(workflowId, userId) {
     try {
       const workflow = await Workflow.findById(workflowId);
-      
+
       if (!workflow) {
-        throw new Error('Workflow not found');
+        throw new Error("Workflow not found");
       }
 
-      if (workflow.ownerId.toString() !== userId) {
-        throw new Error('Unauthorized to delete this workflow');
+      if (workflow.owner.toString() !== userId) {
+        throw new Error("Unauthorized to delete this workflow");
       }
 
       await Workflow.findByIdAndDelete(workflowId);
 
-      this.logger.info(`Workflow deleted: ${workflowId} by user ${userId}`);
       return true;
     } catch (error) {
-      this.logger.error('Error deleting workflow:', error);
       throw error;
     }
   }
@@ -216,27 +181,25 @@ class WorkflowService {
   async shareWorkflow(workflowId, userId, sharing) {
     try {
       const workflow = await Workflow.findById(workflowId);
-      
+
       if (!workflow) {
-        throw new Error('Workflow not found');
+        throw new Error("Workflow not found");
       }
 
-      if (workflow.ownerId.toString() !== userId) {
-        throw new Error('Unauthorized to share this workflow');
+      if (workflow.owner.toString() !== userId) {
+        throw new Error("Unauthorized to share this workflow");
       }
 
       workflow.sharing = {
         ...workflow.sharing,
         ...sharing,
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
       };
 
       await workflow.save();
 
-      this.logger.info(`Workflow sharing updated: ${workflowId} by user ${userId}`);
       return workflow;
     } catch (error) {
-      this.logger.error('Error sharing workflow:', error);
       throw error;
     }
   }
@@ -245,63 +208,63 @@ class WorkflowService {
     try {
       return await this.langChainService.validateWorkflow(workflow);
     } catch (error) {
-      this.logger.error('Error validating workflow:', error);
+      this.logger.error("Error validating workflow:", error);
       return {
         valid: false,
         errors: [error.message],
-        warnings: []
+        warnings: [],
       };
     }
   }
 
   processNodes(nodes) {
-    return nodes.map(node => ({
+    return nodes.map((node) => ({
       ...node,
       id: node.id || this.generateNodeId(),
       position: node.position || { x: 0, y: 0 },
       config: {
         ...node.config,
-        retryCount: 0
+        retryCount: 0,
       },
       metadata: {
         ...node.metadata,
         createdAt: new Date(),
-        lastModified: new Date()
-      }
+        lastModified: new Date(),
+      },
     }));
   }
 
   processEdges(edges) {
-    return edges.map(edge => ({
+    return edges.map((edge) => ({
       ...edge,
       id: edge.id || this.generateEdgeId(),
       metadata: {
         ...edge.metadata,
-        createdAt: new Date()
-      }
+        createdAt: new Date(),
+      },
     }));
   }
 
   calculateComplexity(nodes, edges) {
     // Simple complexity calculation
     let complexity = 0;
-    
+
     // Base complexity from node count
     complexity += nodes.length;
-    
+
     // Add complexity for different node types
-    nodes.forEach(node => {
+    nodes.forEach((node) => {
       switch (node.type) {
-        case 'llm':
+        case "llm":
           complexity += 2;
           break;
-        case 'tool':
+        case "tool":
           complexity += 1;
           break;
-        case 'condition':
+        case "condition":
           complexity += 3;
           break;
-        case 'loop':
+        case "loop":
           complexity += 4;
           break;
         default:
@@ -321,14 +284,14 @@ class WorkflowService {
     // - Adding/removing nodes
     // - Changing node types
     // - Modifying core configuration
-    
+
     if (updates.nodes) {
       if (updates.nodes.length !== workflow.nodes.length) {
         return true;
       }
-      
+
       for (let i = 0; i < updates.nodes.length; i++) {
-        const oldNode = workflow.nodes.find(n => n.id === updates.nodes[i].id);
+        const oldNode = workflow.nodes.find((n) => n.id === updates.nodes[i].id);
         if (!oldNode || oldNode.type !== updates.nodes[i].type) {
           return true;
         }
@@ -343,7 +306,7 @@ class WorkflowService {
   }
 
   incrementVersion(currentVersion) {
-    const [major, minor, patch] = currentVersion.split('.').map(Number);
+    const [major, minor, patch] = currentVersion.split(".").map(Number);
     return `${major + 1}.0.0`;
   }
 
@@ -364,40 +327,40 @@ class WorkflowService {
   async getWorkflowStats(workflowId, userId) {
     try {
       const workflow = await this.getWorkflow(workflowId, userId);
-      
+
       // Get execution statistics
-      const { WorkflowExecution } = require('../models');
+      const { WorkflowExecution } = require("../models");
       const executions = await WorkflowExecution.find({ workflowId });
-      
+
       const stats = {
         totalExecutions: executions.length,
-        successfulExecutions: executions.filter(e => e.status === 'completed').length,
-        failedExecutions: executions.filter(e => e.status === 'failed').length,
+        successfulExecutions: executions.filter((e) => e.status === "completed").length,
+        failedExecutions: executions.filter((e) => e.status === "failed").length,
         averageDuration: 0,
-        lastExecution: null
+        lastExecution: null,
       };
 
       if (executions.length > 0) {
-        const completedExecutions = executions.filter(e => e.status === 'completed' && e.metrics.duration);
-        
+        const completedExecutions = executions.filter((e) => e.status === "completed" && e.metrics.duration);
+
         if (completedExecutions.length > 0) {
           stats.averageDuration = completedExecutions.reduce((sum, e) => sum + e.metrics.duration, 0) / completedExecutions.length;
         }
-        
+
         stats.lastExecution = executions.sort((a, b) => b.metrics.startTime - a.metrics.startTime)[0];
       }
 
       return stats;
     } catch (error) {
-      this.logger.error('Error getting workflow stats:', error);
+      this.logger.error("Error getting workflow stats:", error);
       throw error;
     }
   }
 
-  async exportWorkflow(workflowId, userId, format = 'json') {
+  async exportWorkflow(workflowId, userId, format = "json") {
     try {
       const workflow = await this.getWorkflow(workflowId, userId);
-      
+
       const exportData = {
         name: workflow.name,
         description: workflow.description,
@@ -407,34 +370,34 @@ class WorkflowService {
         metadata: workflow.metadata,
         version: workflow.version,
         exportedAt: new Date(),
-        exportedBy: userId
+        exportedBy: userId,
       };
 
       switch (format) {
-        case 'json':
+        case "json":
           return JSON.stringify(exportData, null, 2);
-        case 'yaml':
-          const yaml = require('js-yaml');
+        case "yaml":
+          const yaml = require("js-yaml");
           return yaml.dump(exportData);
         default:
           throw new Error(`Unsupported export format: ${format}`);
       }
     } catch (error) {
-      this.logger.error('Error exporting workflow:', error);
+      this.logger.error("Error exporting workflow:", error);
       throw error;
     }
   }
 
-  async importWorkflow(workflowData, userId, format = 'json') {
+  async importWorkflow(workflowData, userId, format = "json") {
     try {
       let parsedData;
-      
+
       switch (format) {
-        case 'json':
+        case "json":
           parsedData = JSON.parse(workflowData);
           break;
-        case 'yaml':
-          const yaml = require('js-yaml');
+        case "yaml":
+          const yaml = require("js-yaml");
           parsedData = yaml.load(workflowData);
           break;
         default:
@@ -442,20 +405,23 @@ class WorkflowService {
       }
 
       // Create new workflow from imported data
-      const newWorkflow = await this.createWorkflow({
-        name: `${parsedData.name} (Imported)`,
-        description: parsedData.description,
-        nodes: parsedData.nodes,
-        edges: parsedData.edges,
-        configuration: parsedData.configuration,
-        tags: parsedData.metadata?.tags || [],
-        category: parsedData.metadata?.category || 'general'
-      }, userId);
+      const newWorkflow = await this.createWorkflow(
+        {
+          name: `${parsedData.name} (Imported)`,
+          description: parsedData.description,
+          nodes: parsedData.nodes,
+          edges: parsedData.edges,
+          configuration: parsedData.configuration,
+          tags: parsedData.metadata?.tags || [],
+          category: parsedData.metadata?.category || "general",
+        },
+        userId
+      );
 
       this.logger.info(`Workflow imported: ${newWorkflow._id} by user ${userId}`);
       return newWorkflow;
     } catch (error) {
-      this.logger.error('Error importing workflow:', error);
+      this.logger.error("Error importing workflow:", error);
       throw error;
     }
   }
@@ -466,7 +432,7 @@ class WorkflowService {
       const workflow = await Workflow.findById(workflowId);
       return workflow;
     } catch (error) {
-      this.logger.error('Error fetching workflow by ID:', error);
+      this.logger.error("Error fetching workflow by ID:", error);
       throw error;
     }
   }
@@ -480,52 +446,52 @@ class WorkflowService {
         // Parse stringified nodes and edges back to objects
         let nodes = template.nodes || [];
         let edges = template.edges || [];
-        
+
         // Handle different storage formats for nodes
-        if (typeof nodes === 'string') {
+        if (typeof nodes === "string") {
           try {
             nodes = JSON.parse(nodes);
           } catch (e) {
-            this.logger.error('Failed to parse template nodes (string format):', e);
+            this.logger.error("Failed to parse template nodes (string format):", e);
             nodes = [];
           }
-        } else if (Array.isArray(nodes) && nodes.length > 0 && typeof nodes[0] === 'string') {
+        } else if (Array.isArray(nodes) && nodes.length > 0 && typeof nodes[0] === "string") {
           // Handle case where nodes is stored as an array with one JSON string element
           try {
             nodes = JSON.parse(nodes[0]);
           } catch (e) {
-            this.logger.error('Failed to parse template nodes (array format):', e);
+            this.logger.error("Failed to parse template nodes (array format):", e);
             nodes = [];
           }
         }
-        
+
         // Handle different storage formats for edges
-        if (typeof edges === 'string') {
+        if (typeof edges === "string") {
           try {
             edges = JSON.parse(edges);
           } catch (e) {
-            this.logger.error('Failed to parse template edges (string format):', e);
+            this.logger.error("Failed to parse template edges (string format):", e);
             edges = [];
           }
-        } else if (Array.isArray(edges) && edges.length > 0 && typeof edges[0] === 'string') {
+        } else if (Array.isArray(edges) && edges.length > 0 && typeof edges[0] === "string") {
           // Handle case where edges is stored as an array with one JSON string element
           try {
             edges = JSON.parse(edges[0]);
           } catch (e) {
-            this.logger.error('Failed to parse template edges (array format):', e);
+            this.logger.error("Failed to parse template edges (array format):", e);
             edges = [];
           }
         }
-        
-        this.logger.info('Template parsing completed:', {
+
+        this.logger.info("Template parsing completed:", {
           templateId: template.templateId,
           nodesType: typeof template.nodes,
           edgesType: typeof template.edges,
           parsedNodesCount: nodes.length,
           parsedEdgesCount: edges.length,
-          firstNodeId: nodes.length > 0 ? nodes[0].id : 'none'
+          firstNodeId: nodes.length > 0 ? nodes[0].id : "none",
         });
-        
+
         return {
           _id: template._id,
           id: template._id,
@@ -537,15 +503,15 @@ class WorkflowService {
           configuration: template.configuration || {},
           category: template.category,
           version: template.version,
-          status: template.status
+          status: template.status,
         };
       }
-      
+
       // Fallback: check if there's a workflow instance with this templateId
       const workflow = await Workflow.findOne({ templateId: templateId });
       return workflow;
     } catch (error) {
-      this.logger.error('Error fetching workflow by template ID:', error);
+      this.logger.error("Error fetching workflow by template ID:", error);
       throw error;
     }
   }
@@ -554,36 +520,27 @@ class WorkflowService {
     try {
       // Find workflows that have trigger configurations for this event type
       const workflows = await Workflow.find({
-        'configuration.triggers': {
-          $elemMatch: { eventType: eventType, enabled: true }
+        "configuration.triggers": {
+          $elemMatch: { eventType: eventType, enabled: true },
         },
-        status: 'published'
+        status: "published",
       });
-      
+
       return workflows;
     } catch (error) {
-      this.logger.error('Error fetching workflows by trigger type:', error);
+      this.logger.error("Error fetching workflows by trigger type:", error);
       throw error;
     }
   }
 
   async createWorkflowFromTemplate(templateData, userId) {
     try {
-      const {
-        templateId,
-        name,
-        description,
-        nodes = [],
-        edges = [],
-        triggers = [],
-        configuration = {},
-        category = 'template'
-      } = templateData;
+      const { templateId, name, description, nodes = [], edges = [], triggers = [], configuration = {}, category = "template" } = templateData;
 
       // Validate workflow structure
       const validation = await this.validateWorkflow({ nodes, edges });
       if (!validation.valid) {
-        throw new Error(`Template validation failed: ${validation.errors.join(', ')}`);
+        throw new Error(`Template validation failed: ${validation.errors.join(", ")}`);
       }
 
       // Create workflow from template
@@ -591,20 +548,20 @@ class WorkflowService {
         templateId: templateId,
         name: name,
         description: description,
-        ownerId: userId,
+        owner: userId,
         nodes: this.processNodes(nodes),
         edges: this.processEdges(edges),
         configuration: {
           maxConcurrentExecutions: configuration.maxConcurrentExecutions || 5,
           timeoutMinutes: configuration.timeoutMinutes || 30,
-          retryPolicy: configuration.retryPolicy || 'exponential',
-          triggers: triggers.map(trigger => ({
+          retryPolicy: configuration.retryPolicy || "exponential",
+          triggers: triggers.map((trigger) => ({
             eventType: trigger.eventType,
             enabled: trigger.enabled !== false,
             filter: trigger.filter || {},
-            priority: trigger.priority || 'normal'
+            priority: trigger.priority || "normal",
           })),
-          ...configuration
+          ...configuration,
         },
         metadata: {
           tags: templateData.tags || [],
@@ -613,10 +570,10 @@ class WorkflowService {
           edgeCount: edges.length,
           complexity: this.calculateComplexity(nodes, edges),
           isTemplate: true,
-          templateVersion: templateData.version || '1.0.0'
+          templateVersion: templateData.version || "1.0.0",
         },
-        version: templateData.version || '1.0.0',
-        status: 'published'
+        version: templateData.version || "1.0.0",
+        status: "published",
       });
 
       await workflow.save();
@@ -624,7 +581,7 @@ class WorkflowService {
       this.logger.info(`Workflow created from template ${templateId}: ${workflow._id} by user ${userId}`);
       return workflow;
     } catch (error) {
-      this.logger.error('Error creating workflow from template:', error);
+      this.logger.error("Error creating workflow from template:", error);
       throw error;
     }
   }

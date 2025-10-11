@@ -1,17 +1,9 @@
 const { WorkflowExecution } = require("../models");
 const LangChainService = require("./LangChainService");
-const winston = require("winston");
-
 class WorkflowExecutionService {
   constructor(io) {
     this.io = io;
     this.langChainService = new LangChainService();
-
-    this.logger = winston.createLogger({
-      level: "info",
-      format: winston.format.json(),
-      transports: [new winston.transports.Console(), new winston.transports.File({ filename: "logs/execution.log" })],
-    });
 
     // Track active executions
     this.activeExecutions = new Map();
@@ -78,7 +70,6 @@ class WorkflowExecutionService {
 
       return execution;
     } catch (error) {
-      this.logger.error("Error starting workflow execution:", error);
       throw error;
     }
   }
@@ -92,15 +83,6 @@ class WorkflowExecutionService {
     const { execution, context } = activeExecution;
     const { nodes, edges } = workflow;
 
-    // Debug logging
-    this.logger.info("Workflow execution debug:", {
-      workflowId: workflow.id || workflow._id,
-      nodeCount: nodes?.length || 0,
-      edgeCount: edges?.length || 0,
-      nodes: nodes?.map((n) => ({ id: n.id, type: n.type })) || [],
-      edges: edges?.map((e) => ({ source: e.source, target: e.target })) || [],
-    });
-
     // Build execution graph
     const nodeMap = new Map(nodes.map((node) => [node.id, node]));
     const edgeMap = this.buildEdgeMap(edges);
@@ -108,22 +90,7 @@ class WorkflowExecutionService {
     // Find start nodes (nodes with no incoming edges)
     const startNodes = nodes.filter((node) => !edges.some((edge) => edge.target === node.id));
 
-    this.logger.info("Start node detection:", {
-      totalNodes: nodes.length,
-      totalEdges: edges.length,
-      startNodesFound: startNodes.length,
-      startNodeIds: startNodes.map((n) => n.id),
-    });
-
     if (startNodes.length === 0) {
-      this.logger.error("No start node found - detailed debug:", {
-        allNodeIds: nodes.map((n) => n.id),
-        allEdgeTargets: edges.map((e) => e.target),
-        nodesWithIncoming: nodes.map((node) => ({
-          id: node.id,
-          hasIncoming: edges.some((edge) => edge.target === node.id),
-        })),
-      });
       throw new Error("No start node found in workflow");
     }
 
@@ -191,13 +158,6 @@ class WorkflowExecutionService {
             executionState.context[node.id] = nodeResult.output;
             // Also store in the format expected by variable references: nodeId.output
             executionState.context[`${node.id}.output`] = nodeResult.output;
-            
-            // Debug logging
-            console.log(`[CONTEXT] Updated context for node ${node.id}:`);
-            console.log(`[CONTEXT] - ${node.id}_output: ${typeof nodeResult.output}`);
-            console.log(`[CONTEXT] - ${node.id}: ${typeof nodeResult.output}`);
-            console.log(`[CONTEXT] - ${node.id}.output: ${typeof nodeResult.output}`);
-            console.log(`[CONTEXT] Context keys:`, Object.keys(executionState.context));
           }
         }
 
@@ -299,15 +259,76 @@ class WorkflowExecutionService {
 
       return result;
     } catch (error) {
-      this.logger.error(`Error executing node ${node.id}:`, error);
       throw error;
     }
   }
 
   async executeHumanReviewNode(executionId, node, context) {
     try {
-      const { humanReviewConfig } = node.data;
-      const { taskConfig, timeout = 86400000 } = humanReviewConfig; // 24 hours default
+      // Check if node.data exists and has the expected structure
+      if (!node.data) {
+        throw new Error(`Human review node ${node.id} is missing data property`);
+      }
+
+      // Handle different data structures from NoamVisionBE
+      let humanReviewConfig,
+        taskConfig,
+        timeout = 86400000;
+
+      if (node.data.humanReviewConfig) {
+        // Expected structure: { humanReviewConfig: { taskConfig: {...}, timeout: ... } }
+        humanReviewConfig = node.data.humanReviewConfig;
+        taskConfig = humanReviewConfig.taskConfig;
+        timeout = humanReviewConfig.timeout || timeout;
+
+        // If no taskConfig in humanReviewConfig, create a default one
+        if (!taskConfig) {
+          // Try to extract API credentials from context metadata
+          const metadata = context._metadata || {};
+          const noamApiToken = metadata.noamApiToken || process.env.NOAM_API_TOKEN || "default-token";
+          const noamApiBaseUrl = metadata.noamApiBaseUrl || process.env.NOAM_API_BASE_URL || "https://api.noamvision.com";
+          const roleId = metadata.roleId || "default-role-id";
+
+          // Warn if using default credentials
+          if (noamApiToken === "default-token" || roleId === "default-role-id") {
+            // Using default credentials - task creation may fail
+          }
+
+          taskConfig = {
+            taskTitle: node.data.label || "Human Review Required",
+            taskDescription: node.data.description || "Please review this workflow step",
+            roleId: roleId,
+            data: {
+              context: "Workflow execution requires human review",
+              workflowExecutionId: executionId,
+              nodeId: node.id,
+              workflowContext: context,
+            },
+            priority: "medium",
+            assignee: "",
+            timeoutHours: timeout / (60 * 60 * 1000), // Convert to hours
+            noamApiToken: noamApiToken,
+            noamApiBaseUrl: noamApiBaseUrl,
+          };
+        }
+      } else if (node.data.taskConfig) {
+        // Alternative structure: { taskConfig: {...}, timeout: ... }
+        taskConfig = node.data.taskConfig;
+        timeout = node.data.timeout || timeout;
+      } else if (node.data.tool === "noam_task_creator" && node.data.parameters) {
+        // Tool-based structure: { tool: 'noam_task_creator', parameters: {...} }
+        taskConfig = node.data.parameters;
+        timeout = node.data.parameters.timeout || timeout;
+      } else {
+        // Fallback: try to extract from node.data directly
+        taskConfig = node.data;
+        timeout = node.data.timeout || timeout;
+      }
+
+      // Validate required fields
+      if (!taskConfig) {
+        throw new Error(`Human review node ${node.id} has no task configuration`);
+      }
 
       // Process template variables in task configuration
       const processedTaskConfig = this.processTemplateVariables(taskConfig, context);
@@ -347,6 +368,10 @@ class WorkflowExecutionService {
         priority: enhancedTaskConfig.priority || "high",
         assignee: enhancedTaskConfig.assignee,
         workflowExecutionId: executionId,
+        roleId: enhancedTaskConfig.roleId,
+        timeout: enhancedTaskConfig.timeoutHours ? enhancedTaskConfig.timeoutHours * 60 * 60 * 1000 : timeout,
+        noamApiToken: enhancedTaskConfig.noamApiToken,
+        noamApiBaseUrl: enhancedTaskConfig.noamApiBaseUrl,
       };
 
       const taskCreationResult = await this.langChainService.executeToolNode(
@@ -382,12 +407,14 @@ class WorkflowExecutionService {
       });
 
       // Step 3: Poll for task completion (non-blocking)
-      this.startTaskPolling(executionId, node.id, taskId, timeout);
+      this.startTaskPolling(executionId, node.id, taskId, timeout, enhancedTaskConfig.noamApiToken, enhancedTaskConfig.noamApiBaseUrl);
 
       // Return pending result - execution will be resumed when task is completed
+
       return {
         success: true,
         status: "pending",
+        requiresHumanReview: true, // Add this line
         output: {
           taskId: taskId,
           status: "waiting_for_approval",
@@ -401,12 +428,11 @@ class WorkflowExecutionService {
         },
       };
     } catch (error) {
-      this.logger.error(`Error executing human review node ${node.id}:`, error);
       throw error;
     }
   }
 
-  async startTaskPolling(executionId, nodeId, taskId, timeout) {
+  async startTaskPolling(executionId, nodeId, taskId, timeout, noamApiToken, noamApiBaseUrl) {
     try {
       // Run polling in background
       const pollResult = await this.langChainService.executeToolNode(
@@ -416,6 +442,8 @@ class WorkflowExecutionService {
             taskId: taskId,
             maxWaitTime: timeout,
             pollInterval: 5000, // Poll every 5 seconds
+            noamApiToken: noamApiToken,
+            noamApiBaseUrl: noamApiBaseUrl,
           }),
         },
         {}
@@ -431,7 +459,6 @@ class WorkflowExecutionService {
         await this.handleHumanReviewTimeout(executionId, nodeId, taskId);
       }
     } catch (error) {
-      this.logger.error(`Error polling task ${taskId}:`, error);
       await this.handleHumanReviewTimeout(executionId, nodeId, taskId);
     }
   }
@@ -440,7 +467,6 @@ class WorkflowExecutionService {
     try {
       const activeExecution = this.activeExecutions.get(executionId);
       if (!activeExecution) {
-        this.logger.warn(`Cannot resume execution ${executionId} - not found in active executions`);
         return;
       }
 
@@ -524,7 +550,6 @@ class WorkflowExecutionService {
         });
       }
     } catch (error) {
-      this.logger.error(`Error resuming execution after approval:`, error);
       this.completeExecution(executionId, "failed", null, error);
     }
   }
@@ -552,7 +577,7 @@ class WorkflowExecutionService {
         taskId: taskId,
       });
     } catch (error) {
-      this.logger.error("Error handling human review timeout:", error);
+      // Handle timeout error silently
     }
   }
 
@@ -562,13 +587,13 @@ class WorkflowExecutionService {
         { executionId: executionId },
         {
           $set: {
-            status: "waiting",
+            status: "paused",
             waitingInfo: waitingInfo,
           },
         }
       );
     } catch (error) {
-      this.logger.error("Error marking execution as waiting:", error);
+      // Handle error silently
     }
   }
 
@@ -582,7 +607,7 @@ class WorkflowExecutionService {
         }
       );
     } catch (error) {
-      this.logger.error("Error clearing execution waiting status:", error);
+      // Handle error silently
     }
   }
 
@@ -660,7 +685,6 @@ class WorkflowExecutionService {
           return true;
       }
     } catch (error) {
-      this.logger.error("Error evaluating edge condition:", error);
       return false;
     }
   }
@@ -700,7 +724,7 @@ class WorkflowExecutionService {
         await execution.save();
       }
     } catch (error) {
-      this.logger.error("Error logging execution step:", error);
+      // Handle error silently
     }
   }
 
@@ -708,7 +732,7 @@ class WorkflowExecutionService {
     try {
       await WorkflowExecution.findOneAndUpdate({ executionId: executionId }, { $set: { [`metrics.${Object.keys(updates)[0]}`]: Object.values(updates)[0] } });
     } catch (error) {
-      this.logger.error("Error updating execution metrics:", error);
+      // Handle error silently
     }
   }
 
@@ -768,10 +792,8 @@ class WorkflowExecutionService {
         error: error?.message,
         duration: execution.metrics.duration,
       });
-
-      this.logger.info(`Execution ${executionId} completed with status: ${status}`);
     } catch (err) {
-      this.logger.error("Error completing execution:", err);
+      // Handle error silently
     }
   }
 
@@ -804,7 +826,6 @@ class WorkflowExecutionService {
       }
       return false;
     } catch (error) {
-      this.logger.error("Error aborting execution:", error);
       throw error;
     }
   }
@@ -814,7 +835,6 @@ class WorkflowExecutionService {
       const execution = await WorkflowExecution.findOne({ executionId: executionId });
       return execution;
     } catch (error) {
-      this.logger.error("Error getting execution status:", error);
       throw error;
     }
   }
@@ -837,7 +857,6 @@ class WorkflowExecutionService {
 
       return executions;
     } catch (error) {
-      this.logger.error("Error listing executions:", error);
       throw error;
     }
   }
@@ -894,14 +913,7 @@ class WorkflowExecutionService {
         reason: "human_review_required",
         reviewData: nodeResult.output,
       });
-
-      this.logger.info("Workflow paused for human review:", {
-        executionId,
-        nodeId: node.id,
-        hasExternalTask: !!nodeResult.output.externalTask?.enabled,
-      });
     } catch (error) {
-      this.logger.error("Error handling human review node:", error);
       throw error;
     }
   }
@@ -970,17 +982,8 @@ class WorkflowExecutionService {
         }
       );
 
-      this.logger.info("External task created successfully:", {
-        executionId,
-        nodeId,
-        taskId: response.data.taskId || response.data.id,
-        endpoint: externalTask.apiConfig.endpoint,
-      });
-
       return response.data;
     } catch (error) {
-      this.logger.error("Error creating external task:", error);
-
       // Update execution with error
       await WorkflowExecution.findOneAndUpdate(
         {
@@ -1040,7 +1043,6 @@ class WorkflowExecutionService {
         await this.stopWorkflowExecution(executionId, "rejected_by_human_review");
       }
     } catch (error) {
-      this.logger.error("Error resuming workflow after review:", error);
       throw error;
     }
   }
@@ -1051,7 +1053,6 @@ class WorkflowExecutionService {
   async continueWorkflowExecution(executionId, fromNodeId) {
     // TODO: Implement workflow continuation logic
     // This would involve finding the next nodes and continuing execution
-    this.logger.info("Continuing workflow execution:", { executionId, fromNodeId });
   }
 
   /**
@@ -1072,8 +1073,6 @@ class WorkflowExecutionService {
       executionId,
       reason,
     });
-
-    this.logger.info("Workflow execution stopped:", { executionId, reason });
   }
 
   emitExecutionEvent(executionId, event, data) {
