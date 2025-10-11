@@ -122,7 +122,11 @@ router.get(
     }
 
     // Increment view count
-    template.analytics.views += 1;
+    if (!template.analytics) {
+      template.analytics = { uses: 0, lastUsed: null, views: 0 };
+    }
+    template.analytics.uses += 1;
+    template.analytics.lastUsed = new Date();
     await template.save();
 
     res.json({
