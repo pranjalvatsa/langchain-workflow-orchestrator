@@ -166,7 +166,8 @@ router.post(
   "/:id/use",
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
-    const userId = req.user._id.toString();
+  // Use userId if authenticated, else fallback to 'anonymous' or null
+  const userId = req.user && req.user._id ? req.user._id.toString() : 'anonymous';
     const { name, customization = {} } = req.body;
 
     const template = await WorkflowTemplate.findOne({
@@ -267,7 +268,7 @@ router.get(
       { $group: { _id: "$tags", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 50 },
-      { $project: { name: "$_id", count: 1, _id: 0 } },
+  { $project: { name: "$_id", count: 1 } },
     ];
 
     const tags = await WorkflowTemplate.aggregate(pipeline);
@@ -722,7 +723,6 @@ router.post(
         message: "Workflow successfully imported from Noam",
         data: {
           templateId: savedTemplate.templateId,
-          _id: savedTemplate.templateId || null,
           name: savedTemplate.name,
           category: savedTemplate.category,
 
