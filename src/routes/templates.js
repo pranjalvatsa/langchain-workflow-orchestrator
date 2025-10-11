@@ -335,8 +335,8 @@ router.post(
         },
         workflows: templates.map((template) => ({
           // Core identification
-          id: template._id.toString(),
-          templateId: template.templateId || template._id.toString(),
+          id: template.templateId ? template.templateId.toString() : null,
+          templateId: template.templateId || null,
           name: template.name,
           description: template.description,
           category: template.category,
@@ -356,7 +356,7 @@ router.post(
                 // Mark as imported from Universal Engine
                 imported: true,
                 source: "universal-engine",
-                originalTemplate: template._id.toString(),
+                originalTemplate: template.templateId ? template.templateId.toString() : null,
               },
             })),
             edges: (template.edges || []).map((edge) => ({
@@ -382,7 +382,7 @@ router.post(
             // Import tracking
             importedFrom: "langchain-orchestrator",
             importedAt: new Date().toISOString(),
-            originalId: template._id.toString(),
+            originalId: template.templateId ? template.templateId.toString() : null,
             originalVersion: template.version || "1.0.0",
           },
 
@@ -463,7 +463,7 @@ router.get(
       }
 
       const reactFlowData = {
-        id: template._id.toString(),
+        id: template.templateId ? template.templateId.toString() : null,
         name: template.name,
         description: template.description,
 
@@ -565,11 +565,11 @@ router.post(
         success: true,
         message: "Universal workflow template saved successfully",
         data: {
-          id: template._id,
+          id: template.templateId || null,
           templateId: template.templateId,
           name: template.name,
           version: template.version,
-          noamImportUrl: `/api/templates/${template._id}/reactflow`,
+          noamImportUrl: `/api/templates/${template.templateId}/reactflow`,
         },
       });
     } catch (error) {
