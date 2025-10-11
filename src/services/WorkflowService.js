@@ -1,9 +1,15 @@
 const { Workflow, WorkflowTemplate } = require("../models");
 const LangChainService = require("./LangChainService");
+const winston = require("winston");
 
 class WorkflowService {
   constructor() {
     this.langChainService = new LangChainService();
+    this.logger = winston.createLogger({
+      level: "info",
+      format: winston.format.json(),
+      transports: [new winston.transports.Console(), new winston.transports.File({ filename: "logs/workflow.log" })],
+    });
   }
 
   async createWorkflow(workflowData, userId) {
@@ -439,9 +445,18 @@ class WorkflowService {
 
   async getWorkflowByTemplateId(templateId) {
     try {
+      console.log(`🔍 Searching for template with templateId: ${templateId}`);
       // First try to find in WorkflowTemplate collection
       const template = await WorkflowTemplate.findOne({ templateId: templateId });
+      console.log(`📋 Template found:`, template ? "YES" : "NO");
       if (template) {
+        console.log(`📋 Template details:`, {
+          id: template._id,
+          templateId: template.templateId,
+          name: template.name,
+          nodesCount: template.nodes?.length || 0,
+          edgesCount: template.edges?.length || 0,
+        });
         // Convert template to workflow format for execution
         // Parse stringified nodes and edges back to objects
         let nodes = template.nodes || [];
@@ -511,6 +526,7 @@ class WorkflowService {
       const workflow = await Workflow.findOne({ templateId: templateId });
       return workflow;
     } catch (error) {
+      console.error("Error fetching workflow by template ID:", error);
       this.logger.error("Error fetching workflow by template ID:", error);
       throw error;
     }

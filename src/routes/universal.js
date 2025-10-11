@@ -148,10 +148,12 @@ router.post(
         },
       });
     } catch (error) {
+      console.error("Universal workflow execution error:", error);
       res.status(500).json({
         success: false,
         error: "Workflow execution failed",
-        message: error.message,
+        message: error?.message || "Unknown error occurred",
+        details: error?.stack || "No additional details available"
       });
     }
   })

@@ -10,7 +10,7 @@ const executionStepSchema = new mongoose.Schema({
   // Execution details
   status: {
     type: String,
-    enum: ['pending', 'running', 'completed', 'failed', 'skipped', 'waiting_approval'],
+    enum: ['pending', 'running', 'completed', 'failed', 'skipped', 'waiting_approval', 'waiting', 'waiting_human_review'],
     default: 'pending',
     index: true
   },
@@ -130,7 +130,7 @@ const workflowExecutionSchema = new mongoose.Schema({
   // Status & Lifecycle
   status: {
     type: String,
-    enum: ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused'],
+    enum: ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused', 'waiting', 'waiting_human_review'],
     default: 'pending',
     index: true
   },

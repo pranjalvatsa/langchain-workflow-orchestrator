@@ -110,7 +110,7 @@ router.get(
     const templateId = req.params.id;
 
     const template = await WorkflowTemplate.findOne({
-      _id: templateId,
+      templateId: templateId,
       active: true,
     }).select("-template.nodes.config.secrets -template.configuration.secrets");
 
@@ -166,7 +166,7 @@ router.post(
     const { name, customization = {} } = req.body;
 
     const template = await WorkflowTemplate.findOne({
-      _id: templateId,
+      templateId: templateId,
       active: true,
     });
 
