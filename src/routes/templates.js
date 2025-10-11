@@ -184,10 +184,10 @@ router.post(
     const workflowData = {
       name: name || `${template.name} (from template)`,
       description: template.description,
-      nodes: template.template.nodes,
-      edges: template.template.edges,
+      nodes: template.nodes, // <-- fix here
+      edges: template.edges, // <-- fix here
       configuration: {
-        ...template.template.configuration,
+        ...template.configuration,
         ...customization.configuration,
       },
       tags: [...(template.tags || []), "from-template"],
@@ -469,14 +469,6 @@ router.get(
             label: node.data?.label || node.name || "Node",
             ...node.data,
           },
-        })),
-
-        edges: (template.edges || []).map((edge) => ({
-          id: edge.id || `edge-${Math.random().toString(36).substr(2, 9)}`,
-          source: edge.source,
-          target: edge.target,
-          type: edge.type || "default",
-          ...edge,
         })),
 
         // Metadata
