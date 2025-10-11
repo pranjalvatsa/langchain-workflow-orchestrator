@@ -1,0 +1,16 @@
+{
+  "templateId": "simple-approval-workflow-v1",
+  "name": "Simple Approval Workflow",
+  "description": "A simple 3-node workflow: Start → Human Review → End",
+  "category": "automation",
+  "version": "1.0.0",
+  "nodes": "[{\"id\":\"start-1\",\"type\":\"start\",\"position\":{\"x\":100,\"y\":100},\"data\":{\"label\":\"Start\",\"description\":\"Workflow starts here\"}},{\"id\":\"human-review-2\",\"type\":\"human_review\",\"position\":{\"x\":300,\"y\":100},\"data\":{\"label\":\"Manager Approval\",\"description\":\"Human review with NOAM task creation\",\"reviewType\":\"approval\",\"instructions\":\"Please review and approve this request: {{requestTitle}}\",\"reviewData\":{\"requestTitle\":\"{{requestTitle}}\",\"requestDescription\":\"{{requestDescription}}\",\"requestedBy\":\"{{requestedBy}}\",\"priority\":\"{{priority}}\"},\"externalTask\":{\"enabled\":true,\"endpoint\":\"https://noam-vision-backend.onrender.com/api/tasks\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer {{NOAM_API_TOKEN}}\"},\"body\":{\"roleId\":\"d1a3f53a-c4fd-4eda-a283-97618057b4ea\",\"title\":\"Approval Required: {{requestTitle}}\",\"description\":\"Please review and approve this request.\\n\\nRequest: {{requestTitle}}\\nDescription: {{requestDescription}}\\nRequested by: {{requestedBy}}\\nPriority: {{priority}}\\n\\nPlease approve or reject this request.\",\"data\":{\"nodeId\":\"human-review-2\",\"executionId\":\"{{executionId}}\",\"requestTitle\":\"{{requestTitle}}\",\"requestDescription\":\"{{requestDescription}}\",\"requestedBy\":\"{{requestedBy}}\",\"priority\":\"{{priority}}\",\"workflowType\":\"simple_approval\"}}}}},{\"id\":\"end-3\",\"type\":\"end\",\"position\":{\"x\":500,\"y\":100},\"data\":{\"label\":\"End\",\"description\":\"Workflow ends here\"}}]",
+  "edges": "[{\"id\":\"e1-2\",\"source\":\"start-1\",\"target\":\"human-review-2\"},{\"id\":\"e2-3\",\"source\":\"human-review-2\",\"target\":\"end-3\"}]",
+  "configuration": {
+    "maxConcurrentExecutions": 5,
+    "timeoutMinutes": 60
+  },
+  "tags": ["approval", "human-review", "noam", "simple"],
+  "complexity": "low",
+  "isPublic": true
+}
