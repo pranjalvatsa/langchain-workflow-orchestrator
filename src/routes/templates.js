@@ -108,12 +108,12 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
-    let template = await WorkflowTemplate.findOne({ templateId: templateId, active: true }).select("-template.nodes.config.secrets -template.configuration.secrets");
+    let template = await WorkflowTemplate.findOne({ templateId: templateId, status: "published" }).select("-template.nodes.config.secrets -template.configuration.secrets");
     console.log("Fetching template......", templateId, "Found:", !!template);
     if (!template) {
       // Try MongoDB _id fallback
       try {
-        template = await WorkflowTemplate.findOne({ _id: templateId, active: true }).select("-template.nodes.config.secrets -template.configuration.secrets");
+        template = await WorkflowTemplate.findOne({ _id: templateId, status: "published" }).select("-template.nodes.config.secrets -template.configuration.secrets");
       } catch (e) {
         // Ignore invalid ObjectId errors
       }
@@ -173,11 +173,11 @@ router.post(
     // Use userId if authenticated, else fallback to 'anonymous' or null
     const userId = req.user && req.user._id ? req.user._id.toString() : 'anonymous';
     const { name, customization = {} } = req.body;
-    let template = await WorkflowTemplate.findOne({ templateId: templateId, active: true });
+    let template = await WorkflowTemplate.findOne({ templateId: templateId, status: "published" });
     if (!template) {
       // Try MongoDB _id fallback
       try {
-        template = await WorkflowTemplate.findOne({ _id: templateId, active: true });
+        template = await WorkflowTemplate.findOne({ _id: templateId, status: "published" });
       } catch (e) {
         // Ignore invalid ObjectId errors
       }
