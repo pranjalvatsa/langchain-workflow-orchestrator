@@ -153,7 +153,7 @@ router.post(
         success: false,
         error: "Workflow execution failed",
         message: error?.message || "Unknown error occurred",
-        details: error?.stack || "No additional details available"
+        details: error?.stack || "No additional details available",
       });
     }
   })
