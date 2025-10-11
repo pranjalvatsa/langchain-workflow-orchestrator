@@ -205,7 +205,7 @@ router.post(
     res.status(201).json({
       success: true,
       message: "Workflow created from template",
-      data: { workflow, template: { id: template._id, name: template.name } },
+      data: { workflow, template: { id: template.templateId || null, name: template.name || null } },
     });
   })
 );
