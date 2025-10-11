@@ -108,12 +108,15 @@ router.get(
   optionalAuth,
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
-
-    const template = await WorkflowTemplate.findOne({
-      templateId: templateId,
-      active: true,
-    }).select("-template.nodes.config.secrets -template.configuration.secrets");
-
+    let template = await WorkflowTemplate.findOne({ templateId: templateId, active: true }).select("-template.nodes.config.secrets -template.configuration.secrets");
+    if (!template) {
+      // Try MongoDB _id fallback
+      try {
+        template = await WorkflowTemplate.findOne({ _id: templateId, active: true }).select("-template.nodes.config.secrets -template.configuration.secrets");
+      } catch (e) {
+        // Ignore invalid ObjectId errors
+      }
+    }
     if (!template) {
       return res.status(404).json({
         error: "Template not found",
@@ -166,15 +169,18 @@ router.post(
   "/:id/use",
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
-  // Use userId if authenticated, else fallback to 'anonymous' or null
-  const userId = req.user && req.user._id ? req.user._id.toString() : 'anonymous';
+    // Use userId if authenticated, else fallback to 'anonymous' or null
+    const userId = req.user && req.user._id ? req.user._id.toString() : 'anonymous';
     const { name, customization = {} } = req.body;
-
-    const template = await WorkflowTemplate.findOne({
-      templateId: templateId,
-      active: true,
-    });
-
+    let template = await WorkflowTemplate.findOne({ templateId: templateId, active: true });
+    if (!template) {
+      // Try MongoDB _id fallback
+      try {
+        template = await WorkflowTemplate.findOne({ _id: templateId, active: true });
+      } catch (e) {
+        // Ignore invalid ObjectId errors
+      }
+    }
     if (!template) {
       return res.status(404).json({
         error: "Template not found",
@@ -189,8 +195,8 @@ router.post(
     const workflowData = {
       name: name || `${template.name} (from template)`,
       description: template.description,
-      nodes: template.nodes, // <-- fix here
-      edges: template.edges, // <-- fix here
+      nodes: template.nodes,
+      edges: template.edges,
       configuration: {
         ...template.configuration,
         ...customization.configuration,
@@ -200,8 +206,6 @@ router.post(
     };
 
     const workflow = await workflowService.createWorkflow(workflowData, userId);
-
-     // Removed analytics usage tracking to prevent errors
 
     res.status(201).json({
       success: true,
