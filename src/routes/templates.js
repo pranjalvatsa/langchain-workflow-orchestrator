@@ -208,7 +208,7 @@ router.post(
       data: {
         workflow,
         template: {
-          id: template.templateId || template._id || null,
+          id: template.templateId || null,
           name: template.name || null
         }
       }
