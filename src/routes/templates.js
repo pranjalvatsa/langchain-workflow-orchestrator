@@ -170,8 +170,8 @@ router.post(
   "/:id/use",
   asyncHandler(async (req, res) => {
     const templateId = req.params.id;
-    // Use userId if authenticated, else fallback to 'anonymous' or null
-    const userId = req.user && req.user._id ? req.user._id.toString() : 'anonymous';
+  // Use userId if authenticated, else pass null for owner
+  const userId = req.user && req.user._id ? req.user._id : null;
     const { name, customization = {} } = req.body;
     let template = await WorkflowTemplate.findOne({ templateId: templateId, status: "published" });
     if (!template) {
