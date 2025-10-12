@@ -690,4 +690,7 @@ class WorkflowService {
   }
 }
 
-module.exports = WorkflowService;
+module.exports = {
+  WorkflowService,
+  getHumanReviewNodes
+};
