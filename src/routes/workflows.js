@@ -346,7 +346,7 @@ router.get(
       }
 
       // Check if user has access to this workflow
-      if (workflow.owner.toString() !== userId.toString()) {
+      if (workflow.owner && userId && workflow.owner.toString() !== userId.toString()) {
         return res.status(403).json({
           success: false,
           error: "Forbidden",
