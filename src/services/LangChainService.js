@@ -1148,7 +1148,7 @@ class LangChainService {
    */
   async executeHumanReviewNode(nodeConfig, context = {}) {
     const { data = {} } = nodeConfig;
-    const { label = "Human Review Required", reviewType = "approval", instructions = "Please review this workflow step", reviewData = {}, externalTask = {} } = data;
+    const { label = "Human Review Required", reviewType = "approval", instructions = "Please review this workflow step", reviewData = {}, externalTask } = data;
 
     // Process review data with context variables
     const processedReviewData = this.processPromptVariables(reviewData, context);
@@ -1174,16 +1174,19 @@ class LangChainService {
       },
     };
 
-    // If external task is enabled, prepare the API call configuration
-    if (externalTask.enabled) {
+    // If externalTask is present, copy all fields
+    if (externalTask && typeof externalTask === 'object') {
       result.output.externalTask = {
-        enabled: true,
-        apiConfig: {
-          endpoint: this.processPromptVariables(externalTask.endpoint || "", context),
-          method: externalTask.method || "POST",
-          headers: this.processPromptVariables(externalTask.headers || {}, context),
-          body: this.processPromptVariables(externalTask.body || {}, context),
-        },
+        ...externalTask,
+        apiConfig: externalTask.apiConfig
+          ? {
+              ...externalTask.apiConfig,
+              endpoint: this.processPromptVariables(externalTask.apiConfig.endpoint || "", context),
+              headers: this.processPromptVariables(externalTask.apiConfig.headers || {}, context),
+              body: this.processPromptVariables(externalTask.apiConfig.body || {}, context),
+            }
+          : undefined,
+        body: externalTask.body ? this.processPromptVariables(externalTask.body, context) : undefined,
       };
     }
 
