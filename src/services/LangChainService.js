@@ -1175,9 +1175,9 @@ class LangChainService {
     };
 
     // Always deep-copy the full externalTask object from nodeConfig.data.externalTask
-    if (externalTask && typeof externalTask === 'object') {
-      // Deep copy and process all prompt variables in nested fields
-      const deepCopy = JSON.parse(JSON.stringify(externalTask));
+    let deepCopy;
+    if (externalTask && typeof externalTask === 'object' && externalTask.apiConfig && externalTask.apiConfig.endpoint) {
+      deepCopy = JSON.parse(JSON.stringify(externalTask));
       if (deepCopy.apiConfig) {
         if (deepCopy.apiConfig.endpoint)
           deepCopy.apiConfig.endpoint = this.processPromptVariables(deepCopy.apiConfig.endpoint, context);
@@ -1189,6 +1189,33 @@ class LangChainService {
       if (deepCopy.body)
         deepCopy.body = this.processPromptVariables(deepCopy.body, context);
       result.output.externalTask = deepCopy;
+    } else {
+      // Hardcoded NOAM API config fallback
+      result.output.externalTask = {
+        enabled: true,
+        apiConfig: {
+          endpoint: "https://noam-vision-backend.onrender.com/api/tasks",
+          method: "POST",
+          headers: {
+            "Authorization": "Bearer {{NOAM_API_TOKEN}}",
+            "Content-Type": "application/json"
+          }
+        },
+        body: {
+          roleId: "d1a3f53a-c4fd-4eda-a283-97618057b4ea",
+          title: "Approval Required: {{requestTitle}}",
+          description: "Please review and approve this request.\n\nRequest: {{requestTitle}}\nDescription: {{requestDescription}}\nRequested by: {{requestedBy}}\nPriority: {{priority}}\n\nPlease approve or reject this request.",
+          data: {
+            nodeId: nodeConfig.id,
+            executionId: context.executionId || "{{executionId}}",
+            requestTitle: context.requestTitle || "{{requestTitle}}",
+            requestDescription: context.requestDescription || "{{requestDescription}}",
+            requestedBy: context.requestedBy || "{{requestedBy}}",
+            priority: context.priority || "{{priority}}",
+            workflowType: "simple_approval"
+          }
+        }
+      };
     }
 
     return result;
