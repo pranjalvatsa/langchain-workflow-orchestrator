@@ -941,13 +941,14 @@ class WorkflowExecutionService {
    * Create external task via API (e.g., NOAM tasks)
    */
   async createExternalTask(executionId, nodeId, reviewOutput) {
-    const { externalTask } = reviewOutput;
+    let taskConfig = reviewOutput.externalTask;
 
     // Defensive check for missing config
-    if (!externalTask || !externalTask.apiConfig) {
-      console.error('[ERROR] externalTask or apiConfig missing in createExternalTask:', JSON.stringify(externalTask, null, 2));
+    if (!taskConfig || !taskConfig.apiConfig) {
+      console.error('[ERROR] externalTask or apiConfig missing in createExternalTask:', JSON.stringify(taskConfig, null, 2));
       // Fallback: use hardcoded config
-      const fallback = {
+      taskConfig = {
+        enabled: true,
         apiConfig: {
           endpoint: "https://noam-vision-backend.onrender.com/api/tasks",
           method: "POST",
@@ -959,7 +960,6 @@ class WorkflowExecutionService {
         },
         body: {}
       };
-      Object.assign(externalTask || {}, fallback);
     }
 
     try {
@@ -967,7 +967,7 @@ class WorkflowExecutionService {
 
       // Prepare the request body with workflow context
       const taskPayload = {
-        ...(externalTask.apiConfig.body || {}),
+        ...(taskConfig.apiConfig.body || {}),
         workflow: {
           executionId,
           nodeId,
@@ -979,8 +979,8 @@ class WorkflowExecutionService {
 
       // Process headers to replace environment variables
       const processedHeaders = {};
-      if (externalTask.apiConfig.headers) {
-        for (const [key, value] of Object.entries(externalTask.apiConfig.headers)) {
+      if (taskConfig.apiConfig.headers) {
+        for (const [key, value] of Object.entries(taskConfig.apiConfig.headers)) {
           if (typeof value === "string") {
             // Replace {{ENV_VAR}} patterns with actual environment variables
             processedHeaders[key] = value.replace(/{{([^}]+)}}/g, (match, envVar) => {
@@ -994,8 +994,8 @@ class WorkflowExecutionService {
 
       // Make the API call to create the external task
       const response = await axios({
-        method: externalTask.apiConfig.method,
-        url: externalTask.apiConfig.endpoint,
+        method: taskConfig.apiConfig.method,
+        url: taskConfig.apiConfig.endpoint,
         headers: {
           "Content-Type": "application/json",
           ...processedHeaders,
