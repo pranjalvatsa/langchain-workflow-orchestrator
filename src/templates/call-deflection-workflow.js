@@ -116,6 +116,7 @@ Customer Service Response:`,
     {
       id: "escalate_to_agent",
       type: "tool",
+      toolName: "agent_escalation",
       position: { x: 280, y: 480 },
       data: {
         config: {
@@ -135,6 +136,7 @@ Customer Service Response:`,
     {
       id: "send_auto_response",
       type: "tool",
+      toolName: "call_response_api",
       position: { x: 50, y: 480 },
       data: {
         config: {
@@ -151,6 +153,7 @@ Customer Service Response:`,
     {
       id: "send_human_response", 
       type: "tool",
+      toolName: "call_response_api",
       position: { x: 130, y: 480 },
       data: {
         config: {
