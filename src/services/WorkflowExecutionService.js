@@ -943,12 +943,31 @@ class WorkflowExecutionService {
   async createExternalTask(executionId, nodeId, reviewOutput) {
     const { externalTask } = reviewOutput;
 
+    // Defensive check for missing config
+    if (!externalTask || !externalTask.apiConfig) {
+      console.error('[ERROR] externalTask or apiConfig missing in createExternalTask:', JSON.stringify(externalTask, null, 2));
+      // Fallback: use hardcoded config
+      const fallback = {
+        apiConfig: {
+          endpoint: "https://noam-vision-backend.onrender.com/api/tasks",
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.NOAM_API_TOKEN || ''}`,
+            "Content-Type": "application/json"
+          },
+          body: {}
+        },
+        body: {}
+      };
+      Object.assign(externalTask || {}, fallback);
+    }
+
     try {
       const axios = require("axios");
 
       // Prepare the request body with workflow context
       const taskPayload = {
-        ...externalTask.apiConfig.body,
+        ...(externalTask.apiConfig.body || {}),
         workflow: {
           executionId,
           nodeId,
