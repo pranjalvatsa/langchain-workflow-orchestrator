@@ -946,7 +946,7 @@ class WorkflowExecutionService {
     // Defensive check for missing config
     if (!taskConfig || !taskConfig.apiConfig) {
       console.error('[ERROR] externalTask or apiConfig missing in createExternalTask:', JSON.stringify(taskConfig, null, 2));
-      // Fallback: use hardcoded config
+      // Fallback: use hardcoded config with required NOAM fields
       taskConfig = {
         enabled: true,
         apiConfig: {
@@ -956,9 +956,19 @@ class WorkflowExecutionService {
             "Authorization": `Bearer ${process.env.NOAM_API_TOKEN || ''}`,
             "Content-Type": "application/json"
           },
-          body: {}
+          body: {
+            roleId: "default-role-id",
+            title: "Default Human Review Task",
+            description: "Fallback: Human review required for workflow execution.",
+            data: {}
+          }
         },
-        body: {}
+        body: {
+          roleId: "default-role-id",
+          title: "Default Human Review Task",
+          description: "Fallback: Human review required for workflow execution.",
+          data: {}
+        }
       };
     }
 
