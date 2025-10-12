@@ -909,6 +909,19 @@ class WorkflowExecutionService {
         },
       });
 
+        // Debug: print externalTask before API call
+        const extTask = nodeResult.output.externalTask;
+        console.log('[DEBUG] External Task object before API call:', JSON.stringify(extTask, null, 2));
+
+        // If node.data is a string, parse it
+        if (node && typeof node.data === 'string') {
+          try {
+            node.data = JSON.parse(node.data);
+          } catch (e) {
+            console.warn('[WARN] Could not parse node.data as JSON:', node.data);
+          }
+        }
+
         // Always create external task for human review node
         await this.createExternalTask(executionId, node.id, nodeResult.output);
 
