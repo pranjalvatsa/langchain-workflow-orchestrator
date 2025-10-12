@@ -1,6 +1,6 @@
 const express = require('express');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
-const WorkflowService = require('../services/WorkflowService');
+const { WorkflowService } = require('../services/WorkflowService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authMiddleware } = require('../middleware/auth');
 

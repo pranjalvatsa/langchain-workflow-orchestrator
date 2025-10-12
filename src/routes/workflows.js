@@ -4,7 +4,7 @@ const express = require("express");
 const { Workflow } = require("../models");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { authMiddleware } = require("../middleware/auth");
-const WorkflowService = require("../services/WorkflowService");
+const { WorkflowService } = require("../services/WorkflowService");
 const { getHumanReviewNodes } = require('../services/WorkflowService');
 
 const router = express.Router();

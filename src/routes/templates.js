@@ -2,7 +2,7 @@ const express = require("express");
 const { WorkflowTemplate } = require("../models");
 const { asyncHandler } = require("../middleware/errorHandler");
 const { optionalAuth, authMiddleware } = require("../middleware/auth");
-const WorkflowService = require("../services/WorkflowService");
+const { WorkflowService } = require("../services/WorkflowService");
 
 const router = express.Router();
 const workflowService = new WorkflowService();
@@ -190,7 +190,7 @@ router.post(
     }
 
     // Create workflow from template
-    const WorkflowService = require("../services/WorkflowService");
+  const { WorkflowService } = require("../services/WorkflowService");
     const workflowService = new WorkflowService();
 
     const workflowData = {

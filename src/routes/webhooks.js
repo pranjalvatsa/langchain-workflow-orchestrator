@@ -1,7 +1,7 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
-const WorkflowService = require('../services/WorkflowService');
+const { WorkflowService } = require('../services/WorkflowService');
 
 const router = express.Router();
 const workflowExecutionService = new WorkflowExecutionService();
