@@ -11,8 +11,7 @@ async function getHumanReviewNodes(workflowId) {
   const workflow = await Workflow.findById(workflowId);
   if (!workflow) throw new Error('Workflow not found');
   return workflow.nodes
-    .filter(node => node.type === 'humanReview')
-    .map(node => node.data);
+    .filter(node => node.type === 'humanReview');
 }
 
 
