@@ -978,6 +978,10 @@ class WorkflowExecutionService {
       const processedHeaders = {};
       if (taskConfig.apiConfig.headers) {
         for (const [key, value] of Object.entries(taskConfig.apiConfig.headers)) {
+              // Debug logging for NOAM API request
+              console.log('[NOAM API] Request URL:', taskConfig.apiConfig.endpoint);
+              console.log('[NOAM API] Request Payload:', JSON.stringify(taskPayload, null, 2));
+              console.log('[NOAM API] Request Headers:', processedHeaders);
           if (typeof value === "string") {
             // Replace {{ENV_VAR}} patterns with actual environment variables
             processedHeaders[key] = value.replace(/{{([^}]+)}}/g, (match, envVar) => {
