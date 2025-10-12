@@ -224,20 +224,25 @@ class WorkflowService {
   }
 
   processNodes(nodes) {
-    return nodes.map((node) => ({
-      ...node,
-      id: node.id || this.generateNodeId(),
-      position: node.position || { x: 0, y: 0 },
-      config: {
-        ...node.config,
-        retryCount: 0,
-      },
-      metadata: {
-        ...node.metadata,
-        createdAt: new Date(),
-        lastModified: new Date(),
-      },
-    }));
+    return nodes.map((node) => {
+      // Deep copy node.data to preserve all fields (including externalTask)
+      const dataCopy = node.data ? JSON.parse(JSON.stringify(node.data)) : {};
+      return {
+        ...node,
+        id: node.id || this.generateNodeId(),
+        position: node.position || { x: 0, y: 0 },
+        data: dataCopy,
+        config: {
+          ...node.config,
+          retryCount: 0,
+        },
+        metadata: {
+          ...node.metadata,
+          createdAt: new Date(),
+          lastModified: new Date(),
+        },
+      };
+    });
   }
 
   processEdges(edges) {
@@ -559,13 +564,33 @@ class WorkflowService {
         throw new Error(`Template validation failed: ${validation.errors.join(", ")}`);
       }
 
+      // Patch human review nodes for NOAM integration
+      const patchedNodes = nodes.map((node) => {
+        if (node.type === "humanReview") {
+          node.data = node.data || {};
+          node.data.humanReviewConfig = node.data.humanReviewConfig || {};
+          node.data.humanReviewConfig.assignedTo = node.data.humanReviewConfig.assignedTo && node.data.humanReviewConfig.assignedTo.length > 0
+            ? node.data.humanReviewConfig.assignedTo
+            : ["manager"];
+          node.data.humanReviewConfig.externalTask = {
+            enabled: true,
+            apiConfig: {
+              method: "POST",
+              authType: "bearer",
+            },
+            taskStatus: "pending",
+          };
+        }
+        return node;
+      });
+
       // Create workflow from template
       const workflow = new Workflow({
         templateId: templateId,
         name: name,
         description: description,
         owner: userId,
-        nodes: this.processNodes(nodes),
+        nodes: this.processNodes(patchedNodes),
         edges: this.processEdges(edges),
         configuration: {
           maxConcurrentExecutions: configuration.maxConcurrentExecutions || 5,
