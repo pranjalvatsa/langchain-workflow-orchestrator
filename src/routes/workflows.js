@@ -440,7 +440,7 @@ router.get(
   })
 );
 
-router.post('/workflows/create-direct', async (req, res) => {
+router.post('/create-direct', async (req, res) => {
   try {
     const userId = req.user?.id || req.body.userId; // Adjust as needed for auth
     const workflow = await workflowService.createDirectWorkflow(req.body, userId);
