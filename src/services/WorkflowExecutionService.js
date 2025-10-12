@@ -158,7 +158,6 @@ class WorkflowExecutionService {
         // Update context with node result
         if (nodeResult.output) {
   workflowLogger.log("Node output", { executionId, nodeId: node.id, output: nodeResult.output });
-  workflowLogger.log("Node execution error", { executionId, nodeId: node.id, error: error.message, stack: error.stack });
           if (typeof nodeResult.output === "object") {
             executionState.context = { ...executionState.context, ...nodeResult.output };
           } else {
