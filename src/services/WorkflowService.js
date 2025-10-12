@@ -1,3 +1,6 @@
+const { Workflow, WorkflowTemplate } = require("../models");
+const LangChainService = require("./LangChainService");
+const winston = require("winston");
 /**
  * Get human review nodes and their data for a workflow
  * @param {String} workflowId - Workflow ObjectId
@@ -12,13 +15,7 @@ async function getHumanReviewNodes(workflowId) {
     .map(node => node.data);
 }
 
-module.exports = {
-  WorkflowService,
-  getHumanReviewNodes
-};
-const { Workflow, WorkflowTemplate } = require("../models");
-const LangChainService = require("./LangChainService");
-const winston = require("winston");
+
 
 class WorkflowService {
   /**
