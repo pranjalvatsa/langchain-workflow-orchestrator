@@ -1,4 +1,5 @@
 const { WorkflowExecution } = require("../models");
+const workflowLogger = require("../utils/workflowLogger");
 const LangChainService = require("./LangChainService");
 class WorkflowExecutionService {
   constructor(io) {
@@ -10,6 +11,7 @@ class WorkflowExecutionService {
   }
 
   async executeWorkflow(workflow, userId, inputs = {}, options = {}) {
+    workflowLogger.log("Workflow execution started", { workflowId: workflow._id, userId, inputs, options });
     const executionId = this.generateExecutionId();
 
     try {
@@ -75,6 +77,7 @@ class WorkflowExecutionService {
   }
 
   async executeWorkflowNodes(executionId, workflow, initialInputs) {
+  workflowLogger.log("Executing workflow nodes", { executionId, workflowId: workflow._id, initialInputs });
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
       throw new Error("Execution not found");
@@ -124,6 +127,7 @@ class WorkflowExecutionService {
     const results = [];
 
     for (const node of currentNodes) {
+    workflowLogger.log("Node execution started", { executionId, nodeId: node.id, nodeType: node.type, input: executionState.context });
       if (executionState.completedNodes.has(node.id)) {
         continue;
       }
@@ -141,15 +145,20 @@ class WorkflowExecutionService {
 
         // Execute node
         const nodeResult = await this.executeNode(executionId, node, executionState.context);
+  workflowLogger.log("Node execution completed", { executionId, nodeId: node.id, output: nodeResult.output, metadata: nodeResult.metadata });
 
         // Check if this is a human review node that requires pausing
         if (nodeResult.requiresHumanReview) {
+  workflowLogger.log("Human review required", { executionId, nodeId: node.id, nodeResult });
           await this.handleHumanReviewNode(executionId, node, nodeResult, executionState);
+  workflowLogger.log("Handled human review node", { executionId, nodeId: node.id });
           return results; // Stop execution here, workflow is paused
         }
 
         // Update context with node result
         if (nodeResult.output) {
+  workflowLogger.log("Node output", { executionId, nodeId: node.id, output: nodeResult.output });
+  workflowLogger.log("Node execution error", { executionId, nodeId: node.id, error: error.message, stack: error.stack });
           if (typeof nodeResult.output === "object") {
             executionState.context = { ...executionState.context, ...nodeResult.output };
           } else {

@@ -1,9 +1,11 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
+const WorkflowService = require('../services/WorkflowService');
 
 const router = express.Router();
 const workflowExecutionService = new WorkflowExecutionService();
+const workflowService = new WorkflowService();
 
 /**
  * @swagger
@@ -491,6 +493,16 @@ router.post('/call-test', asyncHandler(async (req, res) => {
     });
   }
 }));
+
+router.post('/workflows/create-direct', async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.userId; // Adjust as needed for auth
+    const workflow = await workflowService.createDirectWorkflow(req.body, userId);
+    res.json({ success: true, workflow });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
 
 function verifyWebhookSignature(payload, signature) {
   if (!signature || !process.env.WEBHOOK_SECRET) {
