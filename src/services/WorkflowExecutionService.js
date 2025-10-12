@@ -909,10 +909,8 @@ class WorkflowExecutionService {
         },
       });
 
-      // If external task is configured, create the task
-      if (nodeResult.output.externalTask?.enabled) {
+        // Always create external task for human review node
         await this.createExternalTask(executionId, node.id, nodeResult.output);
-      }
 
       // Emit pause event
       this.emitExecutionEvent(executionId, "workflow:paused", {
