@@ -207,10 +207,10 @@ workflowSchema.methods.incrementVersion = function (type = "patch") {
 workflowSchema.methods.validate = function () {
   const errors = [];
 
-  // Check for at least one trigger node
-  const triggerNodes = this.nodes.filter((node) => node.type === "trigger");
-  if (triggerNodes.length === 0) {
-    errors.push("Workflow must have at least one trigger node");
+  // Check for at least one entry node: 'trigger' or 'start'
+  const entryNodes = this.nodes.filter((node) => node.type === "trigger" || node.type === "start");
+  if (entryNodes.length === 0) {
+    errors.push("Workflow must have at least one entry node (trigger or start)");
   }
 
   // Check for orphaned nodes
