@@ -965,16 +965,13 @@ class WorkflowExecutionService {
     try {
       const axios = require("axios");
 
-      // Prepare the request body with workflow context
+      // Prepare the request body for NOAM API (flat payload)
+      const body = taskConfig.apiConfig.body || taskConfig.body || {};
       const taskPayload = {
-        ...(taskConfig.apiConfig.body || {}),
-        workflow: {
-          executionId,
-          nodeId,
-          instructions: reviewOutput.instructions,
-          reviewData: reviewOutput.reviewData,
-          callbackUrl: `${process.env.APP_URL || "http://localhost:8000"}/api/webhooks/human-review/${executionId}/${nodeId}`,
-        },
+        roleId: body.roleId,
+        title: body.title,
+        description: body.description,
+        data: body.data || {},
       };
 
       // Process headers to replace environment variables
