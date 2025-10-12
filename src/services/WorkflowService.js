@@ -1,3 +1,18 @@
+/**
+ * Get human review nodes and their data for a workflow
+ * @param {String} workflowId - Workflow ObjectId
+ * @returns {Promise<Array>} - Array of human review node data
+ */
+async function getHumanReviewNodes(workflowId) {
+  const Workflow = require('../models/Workflow');
+  const workflow = await Workflow.findById(workflowId);
+  if (!workflow) throw new Error('Workflow not found');
+  return workflow.nodes
+    .filter(node => node.type === 'humanReview')
+    .map(node => node.data);
+}
+
+module.exports.getHumanReviewNodes = getHumanReviewNodes;
 const { Workflow, WorkflowTemplate } = require("../models");
 const LangChainService = require("./LangChainService");
 const winston = require("winston");

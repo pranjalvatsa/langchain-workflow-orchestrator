@@ -1,3 +1,15 @@
+// Get human review nodes and their data for a workflow
+const { getHumanReviewNodes } = require('../services/WorkflowService');
+
+router.get('/human-review-nodes/:workflowId', asyncHandler(async (req, res) => {
+  try {
+    const { workflowId } = req.params;
+    const nodes = await getHumanReviewNodes(workflowId);
+    res.json({ success: true, nodes });
+  } catch (error) {
+    res.status(404).json({ success: false, error: error.message });
+  }
+}));
 const express = require("express");
 const { Workflow } = require("../models");
 const { asyncHandler } = require("../middleware/errorHandler");
