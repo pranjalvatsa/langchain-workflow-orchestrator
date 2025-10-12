@@ -12,7 +12,10 @@ async function getHumanReviewNodes(workflowId) {
     .map(node => node.data);
 }
 
-module.exports.getHumanReviewNodes = getHumanReviewNodes;
+module.exports = {
+  WorkflowService,
+  getHumanReviewNodes
+};
 const { Workflow, WorkflowTemplate } = require("../models");
 const LangChainService = require("./LangChainService");
 const winston = require("winston");
