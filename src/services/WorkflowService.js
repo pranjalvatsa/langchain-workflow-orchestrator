@@ -3,6 +3,53 @@ const LangChainService = require("./LangChainService");
 const winston = require("winston");
 
 class WorkflowService {
+  /**
+   * Directly create a workflow without a template
+   * @param {Object} workflowData - Workflow definition (nodes, edges, config, etc.)
+   * @param {String} userId - Owner user ID
+   * @returns {Promise<Workflow>} - Created workflow document
+   */
+  async createDirectWorkflow(workflowData, userId) {
+    try {
+      const { name, description, nodes = [], edges = [], configuration = {}, tags = [], category = "general", noamAccountId } = workflowData;
+
+      // Validate workflow structure
+      const validation = await this.validateWorkflow({ nodes, edges });
+      if (!validation.valid) {
+        throw new Error(`Workflow validation failed: ${validation.errors.join(", ")}`);
+      }
+
+      // Create workflow
+      const workflow = new Workflow({
+        name,
+        description,
+        owner: userId,
+        noamAccountId: noamAccountId || "default-account",
+        nodes: this.processNodes(nodes),
+        edges: this.processEdges(edges),
+        configuration: {
+          maxConcurrentExecutions: configuration.maxConcurrentExecutions || 5,
+          timeoutMinutes: configuration.timeoutMinutes || 30,
+          retryPolicy: configuration.retryPolicy || "none",
+          ...configuration,
+        },
+        metadata: {
+          tags,
+          category,
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+          complexity: this.calculateComplexity(nodes, edges),
+        },
+        version: "1.0.0",
+        status: "draft",
+      });
+
+      await workflow.save();
+      return workflow;
+    } catch (error) {
+      throw error;
+    }
+  }
   constructor() {
     this.langChainService = new LangChainService();
     this.logger = winston.createLogger({
