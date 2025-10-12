@@ -1174,20 +1174,21 @@ class LangChainService {
       },
     };
 
-    // If externalTask is present, copy all fields
+    // Always deep-copy the full externalTask object from nodeConfig.data.externalTask
     if (externalTask && typeof externalTask === 'object') {
-      result.output.externalTask = {
-        ...externalTask,
-        apiConfig: externalTask.apiConfig
-          ? {
-              ...externalTask.apiConfig,
-              endpoint: this.processPromptVariables(externalTask.apiConfig.endpoint || "", context),
-              headers: this.processPromptVariables(externalTask.apiConfig.headers || {}, context),
-              body: this.processPromptVariables(externalTask.apiConfig.body || {}, context),
-            }
-          : undefined,
-        body: externalTask.body ? this.processPromptVariables(externalTask.body, context) : undefined,
-      };
+      // Deep copy and process all prompt variables in nested fields
+      const deepCopy = JSON.parse(JSON.stringify(externalTask));
+      if (deepCopy.apiConfig) {
+        if (deepCopy.apiConfig.endpoint)
+          deepCopy.apiConfig.endpoint = this.processPromptVariables(deepCopy.apiConfig.endpoint, context);
+        if (deepCopy.apiConfig.headers)
+          deepCopy.apiConfig.headers = this.processPromptVariables(deepCopy.apiConfig.headers, context);
+        if (deepCopy.apiConfig.body)
+          deepCopy.apiConfig.body = this.processPromptVariables(deepCopy.apiConfig.body, context);
+      }
+      if (deepCopy.body)
+        deepCopy.body = this.processPromptVariables(deepCopy.body, context);
+      result.output.externalTask = deepCopy;
     }
 
     return result;
