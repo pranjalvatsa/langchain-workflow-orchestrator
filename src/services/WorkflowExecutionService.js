@@ -910,7 +910,11 @@ class WorkflowExecutionService {
       });
 
         // Debug: print externalTask before API call
-        const extTask = nodeResult.output.externalTask;
+        let extTask = nodeResult.output.externalTask;
+        if (!extTask && node && node.data && node.data.externalTask) {
+          extTask = node.data.externalTask;
+          nodeResult.output.externalTask = extTask;
+        }
         console.log('[DEBUG] External Task object before API call:', JSON.stringify(extTask, null, 2));
 
         // If node.data is a string, parse it
@@ -942,6 +946,11 @@ class WorkflowExecutionService {
    */
   async createExternalTask(executionId, nodeId, reviewOutput) {
     let taskConfig = reviewOutput.externalTask;
+
+    // Use node.data.externalTask if missing
+    if (!taskConfig && reviewOutput && reviewOutput.node && reviewOutput.node.data && reviewOutput.node.data.externalTask) {
+      taskConfig = reviewOutput.node.data.externalTask;
+    }
 
     // Defensive check for missing config
     if (!taskConfig || !taskConfig.apiConfig) {
