@@ -1,6 +1,10 @@
 const { WorkflowExecution } = require("../models");
 const workflowLogger = require("../utils/workflowLogger");
 const LangChainService = require("./LangChainService");
+const { workflowResumeQueue } = require('./bullmq-queue');
+const Task = require('../models/Task');
+const WorkflowStepLog = require('../models/WorkflowStepLog');
+
 class WorkflowExecutionService {
   constructor(io) {
     this.io = io;
@@ -12,6 +16,11 @@ class WorkflowExecutionService {
 
   async executeWorkflow(workflow, userId, inputs = {}, options = {}) {
     workflowLogger.log("Workflow execution started", { workflowId: workflow._id, userId, inputs, options });
+    if (!Array.isArray(workflow.nodes)) {
+      workflowLogger.error("Workflow nodes is not iterable", { workflowId: workflow._id, nodes: workflow.nodes });
+      console.error("Workflow nodes is not iterable", { workflowId: workflow._id, nodes: workflow.nodes });
+      throw new Error("Workflow nodes is not iterable. Check workflow definition and template conversion.");
+    }
     const executionId = this.generateExecutionId();
 
     try {
@@ -77,24 +86,43 @@ class WorkflowExecutionService {
   }
 
   async executeWorkflowNodes(executionId, workflow, initialInputs) {
-  workflowLogger.log("Executing workflow nodes", { executionId, workflowId: workflow._id, initialInputs });
+
+    workflowLogger.log("Executing workflow nodes", { executionId, workflowId: workflow._id, initialInputs });
+    if (!this.activeExecutions || typeof this.activeExecutions.get !== 'function') {
+      workflowLogger.log("activeExecutions map is undefined or invalid", { activeExecutions: this.activeExecutions });
+      throw new Error("activeExecutions map is undefined or invalid");
+    }
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
+      workflowLogger.log("Execution not found in activeExecutions", { executionId, activeExecutionsKeys: Array.from(this.activeExecutions.keys ? this.activeExecutions.keys() : []) });
       throw new Error("Execution not found");
     }
 
     const { execution, context } = activeExecution;
     const { nodes, edges } = workflow;
 
+
+    // Optionally accept a startNodeId for resuming
+    let startNodeId = initialInputs && initialInputs.__resumeFromNodeId;
+
     // Build execution graph
     const nodeMap = new Map(nodes.map((node) => [node.id, node]));
     const edgeMap = this.buildEdgeMap(edges);
 
-    // Find start nodes (nodes with no incoming edges)
-    const startNodes = nodes.filter((node) => !edges.some((edge) => edge.target === node.id));
-
-    if (startNodes.length === 0) {
-      throw new Error("No start node found in workflow");
+    let startNodes;
+    if (startNodeId && nodeMap.has(startNodeId)) {
+      // Resume: find all outgoing edges from startNodeId and use their targets as start nodes
+      const nextNodeIds = edges.filter(edge => edge.source === startNodeId).map(edge => edge.target);
+      startNodes = nextNodeIds.map(id => nodeMap.get(id)).filter(Boolean);
+      if (startNodes.length === 0) {
+        throw new Error(`No next node(s) found after paused node ${startNodeId}`);
+      }
+    } else {
+      // Find start nodes (nodes with no incoming edges)
+      startNodes = nodes.filter((node) => !edges.some((edge) => edge.target === node.id));
+      if (startNodes.length === 0) {
+        throw new Error("No start node found in workflow");
+      }
     }
 
     // Initialize execution state
@@ -249,14 +277,19 @@ class WorkflowExecutionService {
       throw new Error("Execution not found");
     }
 
+    const startTime = Date.now();
+    let previousNodeId = context.previousNodeId || null;
+    let previousOutput = context.previousOutput || null;
+
     try {
       let result;
 
       // Handle different node types
       if (node.type === "humanReview") {
-        result = await this.executeHumanReviewNode(executionId, node, context);
+        await this.createHumanReviewTask(executionId, node, context);
+        await this.pauseExecutionForHumanReview(executionId, node.id, context);
+        result = { status: 'waiting_human_review', requiresHumanReview: true };
       } else {
-        // Execute node using LangChain service
         result = await this.langChainService.executeNode(node, context);
       }
 
@@ -265,10 +298,73 @@ class WorkflowExecutionService {
       result.nodeId = node.id;
       result.timestamp = new Date();
 
+      // Log workflow step
+      await WorkflowStepLog.create({
+        executionId,
+        workflowId: context.workflowId,
+        nodeId: node.id,
+        nodeType: node.type,
+        stepIndex: context.stepIndex || null,
+        inputData: context,
+        outputData: result,
+        previousNodeId,
+        previousOutput,
+        status: result.status || 'completed',
+        error: result.error || null,
+        timestamp: result.timestamp,
+        durationMs: Date.now() - startTime,
+      });
+
       return result;
     } catch (error) {
+      // Log failed step
+      await WorkflowStepLog.create({
+        executionId,
+        workflowId: context.workflowId,
+        nodeId: node.id,
+        nodeType: node.type,
+        stepIndex: context.stepIndex || null,
+        inputData: context,
+        previousNodeId,
+        previousOutput,
+        status: 'failed',
+        error,
+        timestamp: new Date(),
+        durationMs: Date.now() - startTime,
+      });
       throw error;
     }
+  }
+
+  async createHumanReviewTask(executionId, node, context) {
+    // Create a task in DB for human review
+    const task = new Task({
+      executionId,
+      nodeId: node.id,
+      workflowId: context.workflowId,
+      status: 'pending',
+      data: context,
+      actions: node.data.actions || [],
+      createdAt: new Date(),
+    });
+    await task.save();
+    // Optionally notify human reviewers (e.g., via websocket, email, etc.)
+  }
+
+  async pauseExecutionForHumanReview(executionId, nodeId, context) {
+    // Set workflow execution status to paused
+    const execution = await WorkflowExecution.findOne({ executionId });
+    execution.status = 'waiting_human_review';
+    execution.pauseState = {
+      isPaused: true,
+      pausedAt: new Date(),
+      pausedBy: 'system',
+      pauseReason: 'human_review_required',
+      currentNodeId: nodeId,
+      lastNodeId: nodeId, // <-- Add this for resume logic
+      context,
+    };
+    await execution.save();
   }
 
   async executeHumanReviewNode(executionId, node, context) {
@@ -902,32 +998,15 @@ class WorkflowExecutionService {
         input: executionState.context,
         humanReview: {
           required: true,
-          reviewType: nodeResult.output.reviewType,
-          instructions: nodeResult.output.instructions,
-          reviewData: nodeResult.output.reviewData,
-          externalTask: nodeResult.output.externalTask || {},
+          reviewType: nodeResult.output?.reviewType,
+          instructions: nodeResult.output?.instructions,
+          reviewData: nodeResult.output?.reviewData,
+          externalTask: nodeResult.output?.externalTask || {},
         },
       });
 
-        // Debug: print externalTask before API call
-        let extTask = nodeResult.output.externalTask;
-        if (!extTask && node && node.data && node.data.externalTask) {
-          extTask = node.data.externalTask;
-          nodeResult.output.externalTask = extTask;
-        }
-        console.log('[DEBUG] External Task object before API call:', JSON.stringify(extTask, null, 2));
 
-        // If node.data is a string, parse it
-        if (node && typeof node.data === 'string') {
-          try {
-            node.data = JSON.parse(node.data);
-          } catch (e) {
-            console.warn('[WARN] Could not parse node.data as JSON:', node.data);
-          }
-        }
-
-        // Always create external task for human review node
-        await this.createExternalTask(executionId, node.id, nodeResult.output);
+        // (NOAM API call removed for now)
 
       // Emit pause event
       this.emitExecutionEvent(executionId, "workflow:paused", {
@@ -945,7 +1024,7 @@ class WorkflowExecutionService {
    * Create external task via API (e.g., NOAM tasks)
    */
   async createExternalTask(executionId, nodeId, reviewOutput) {
-    let taskConfig = reviewOutput.externalTask;
+    let taskConfig = reviewOutput?.externalTask;
 
     // Use node.data.externalTask if missing
     if (!taskConfig && reviewOutput && reviewOutput.node && reviewOutput.node.data && reviewOutput.node.data.externalTask) {
@@ -1109,8 +1188,39 @@ class WorkflowExecutionService {
    * Continue workflow execution from a specific node
    */
   async continueWorkflowExecution(executionId, fromNodeId) {
-    // TODO: Implement workflow continuation logic
-    // This would involve finding the next nodes and continuing execution
+    // 1. Load execution and workflow from DB
+    const execution = await WorkflowExecution.findOne({ executionId });
+    if (!execution) throw new Error("Execution not found");
+    const workflow = await require('../models/Workflow').findById(execution.workflowId);
+    if (!workflow) throw new Error("Workflow not found");
+
+    // 2. Reconstruct execution context
+    let context = execution.pauseState?.context || execution.inputs || {};
+    // Optionally merge in any review data if needed
+
+    // 3. Find next nodes after fromNodeId
+    const nodeMap = new Map(workflow.nodes.map(n => [n.id, n]));
+    const edgeMap = new Map();
+    for (const edge of workflow.edges) {
+      if (!edgeMap.has(edge.source)) edgeMap.set(edge.source, []);
+      edgeMap.get(edge.source).push(edge.target);
+    }
+    const nextNodeIds = edgeMap.get(fromNodeId) || [];
+    const nextNodes = nextNodeIds.map(id => nodeMap.get(id)).filter(Boolean);
+
+    // 4. Resume execution from next nodes
+    if (nextNodes.length > 0) {
+      // You may want to use your existing executeNodeSequence logic
+      await this.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, {
+        completedNodes: new Set(execution.completedNodes || []),
+        nodeResults: new Map(),
+        context,
+      });
+    } else {
+      // No next nodes, mark as completed
+      execution.status = "completed";
+      await execution.save();
+    }
   }
 
   /**
@@ -1152,6 +1262,44 @@ class WorkflowExecutionService {
     for (const [executionId] of this.activeExecutions) {
       await this.abortExecution(executionId, "Server shutdown");
     }
+  }
+
+  /**
+   * Resume workflow from paused state (called by BullMQ worker)
+   */
+  static async resumeWorkflow(executionId, resumeData) {
+  // Load execution and workflow from DB
+  const execution = await WorkflowExecution.findOne({ executionId });
+  if (!execution) throw new Error('Execution not found');
+  const workflow = await require('../models/Workflow').findById(execution.workflowId);
+  if (!workflow) throw new Error('Workflow not found');
+
+  // Restore context/state
+  const context = resumeData.context || execution.inputs;
+  // Set status to running
+  execution.status = 'running';
+  execution.pauseState = { isPaused: false };
+  await execution.save();
+
+  // Find the node where we paused (e.g., human review node)
+  // Assume pauseState.lastNodeId is set when pausing
+  const lastNodeId = execution.pauseState?.lastNodeId || resumeData.lastNodeId;
+  const service = new this();
+  service.activeExecutions.set(executionId, { execution, context });
+  if (!lastNodeId) {
+    // Fallback: start from beginning if not set
+    return await service.executeWorkflowNodes(executionId, workflow, context);
+  }
+  // Pass __resumeFromNodeId in initialInputs to executeWorkflowNodes
+  const resumeInputs = { ...context, __resumeFromNodeId: lastNodeId };
+  return await service.executeWorkflowNodes(executionId, workflow, resumeInputs);
+  }
+
+  /**
+   * Enqueue workflow resume job (call this from human review API)
+   */
+  static async enqueueResumeJob(executionId, resumeData) {
+    await workflowResumeQueue.add('resume', { executionId, resumeData });
   }
 }
 

@@ -125,7 +125,6 @@ class TemplateDeploymentManager {
       await template.save();
       
       console.log(`   ✅ Template saved to database`);
-      console.log(`   🆔 Database ID: ${template._id}`);
       
       return template;
 
@@ -455,7 +454,7 @@ Keep it friendly and concise.`,
       console.log('\n📊 Saved Templates:');
       this.deployedTemplates.forEach((template, index) => {
         console.log(`   ${index + 1}. ${template.name}`);
-        console.log(`      ID: ${template._id}`);
+        console.log(`      ID: ${template.templateId}`);
         console.log(`      Template ID: ${template.templateId}`);
         console.log(`      Category: ${template.metadata.category}`);
         console.log(`      Nodes: ${template.metadata.nodeCount}`);
@@ -477,7 +476,7 @@ Keep it friendly and concise.`,
 
       console.log('\n3️⃣  Get Individual ReactFlow Format:');
       this.deployedTemplates.forEach(template => {
-        console.log(`   GET http://localhost:8000/api/templates/${template._id}/reactflow`);
+        console.log(`   GET http://localhost:8000/api/templates/${template.templateId}/reactflow`);
       });
 
       console.log('\n🚀 Universal Execution Examples:');

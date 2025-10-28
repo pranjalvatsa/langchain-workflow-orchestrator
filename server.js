@@ -144,6 +144,7 @@ const userRoutes = require("./src/routes/users");
 const webhookRoutes = require("./src/routes/webhooks");
 const apiKeyRoutes = require("./src/routes/apiKeys");
 const workflowRoutes = require("./src/routes/workflows");
+const humanReviewRoutes = require("./src/routes/humanReview");
 
 // Health check
 app.get("/health", (req, res) => {
@@ -164,6 +165,7 @@ app.use("/api/keys", apiKeyRoutes);
 app.use("/api/universal", require("./src/routes/universal"));
 app.use("/api/templates", require("./src/routes/templates"));
 app.use("/api/workflows", workflowRoutes);
+app.use("/api/human-review", humanReviewRoutes);
 
 // Legacy endpoints for backward compatibility
 app.post("/api/workflows/execute", async (req, res) => {
