@@ -33,6 +33,12 @@ const workflowResumeWorker = new Worker(
   async job => {
     const { executionId, resumeData } = job.data;
     console.log(`[BullMQ] Resuming workflow execution: ${executionId}`);
+    console.log('[BullMQ] Resume job data:', job.data);
+    if (!resumeData || !resumeData.lastNodeId) {
+      console.warn('[BullMQ] WARNING: resumeData.lastNodeId is missing!');
+    } else {
+      console.log('[BullMQ] resumeData.lastNodeId:', resumeData.lastNodeId);
+    }
     try {
       // Resume workflow from paused state
       await WorkflowExecutionService.resumeWorkflow(executionId, resumeData);

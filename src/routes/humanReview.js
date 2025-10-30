@@ -41,6 +41,37 @@ router.post('/complete', async (req, res) => {
     task.feedback = feedback;
     task.completedAt = new Date();
     await task.save();
+    // Update workflow step status for this node to 'completed'
+    const WorkflowExecution = require('../models').WorkflowExecution;
+    await WorkflowExecution.findOneAndUpdate(
+      { executionId: task.executionId, "steps.nodeId": task.nodeId },
+      {
+        $set: {
+          "steps.$.status": "completed",
+          "steps.$.completedAt": new Date(),
+          "steps.$.humanReview": {
+            approved: actionId === 'proceed',
+            feedback: feedback,
+            reviewedAt: new Date()
+          }
+        }
+      }
+    );
+    // Also update WorkflowStepLog for this node/execution
+    const WorkflowStepLog = require('../models').WorkflowStepLog;
+    await WorkflowStepLog.findOneAndUpdate(
+      { executionId: task.executionId, nodeId: task.nodeId, status: { $ne: 'completed' } },
+      {
+        $set: {
+          status: 'completed',
+          completedAt: new Date(),
+          'humanReview.approved': actionId === 'proceed',
+          'humanReview.feedback': feedback,
+          'humanReview.reviewedAt': new Date()
+        }
+      }
+    );
+    console.log(`[HumanReview] Marked node ${task.nodeId} as completed in execution ${task.executionId} (step log updated)`);
     // Prepare resume data
     const resumeData = {
       action: actionId,

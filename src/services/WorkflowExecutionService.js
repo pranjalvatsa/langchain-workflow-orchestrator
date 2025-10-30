@@ -1,3 +1,4 @@
+console.log('TEST LOG - FILE LOADED');
 const { WorkflowExecution } = require("../models");
 const workflowLogger = require("../utils/workflowLogger");
 const LangChainService = require("./LangChainService");
@@ -85,12 +86,19 @@ class WorkflowExecutionService {
     }
   }
 
-  async executeWorkflowNodes(executionId, workflow, initialInputs) {
-
-    workflowLogger.log("Executing workflow nodes", { executionId, workflowId: workflow._id, initialInputs });
-    if (!this.activeExecutions || typeof this.activeExecutions.get !== 'function') {
-      workflowLogger.log("activeExecutions map is undefined or invalid", { activeExecutions: this.activeExecutions });
-      throw new Error("activeExecutions map is undefined or invalid");
+  async executeWorkflowNodes(executionId, workflow, initialInputs, executionState = null) {    // Debug: Log resume node selection
+    // Debug: Log resume node selection
+    const startNodeId = initialInputs && initialInputs.__resumeFromNodeId;
+    if (startNodeId) {
+      console.log('[Resume Debug] __resumeFromNodeId provided to executeWorkflowNodes:', startNodeId);
+    }
+    // Print the current completedNodes if present
+    if (executionState && executionState.completedNodes) {
+      console.log('[Resume Debug] completedNodes at start of executeWorkflowNodes:', Array.from(executionState.completedNodes));
+    }
+    // Print the current context
+    if (executionState && executionState.context) {
+      console.log('[Resume Debug] context at start of executeWorkflowNodes:', executionState.context);
     }
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
@@ -101,43 +109,40 @@ class WorkflowExecutionService {
     const { execution, context } = activeExecution;
     const { nodes, edges } = workflow;
 
-
-    // Optionally accept a startNodeId for resuming
-    let startNodeId = initialInputs && initialInputs.__resumeFromNodeId;
-
     // Build execution graph
     const nodeMap = new Map(nodes.map((node) => [node.id, node]));
     const edgeMap = this.buildEdgeMap(edges);
 
     let startNodes;
     if (startNodeId && nodeMap.has(startNodeId)) {
-      // Resume: find all outgoing edges from startNodeId and use their targets as start nodes
-      const nextNodeIds = edges.filter(edge => edge.source === startNodeId).map(edge => edge.target);
-      startNodes = nextNodeIds.map(id => nodeMap.get(id)).filter(Boolean);
-      if (startNodes.length === 0) {
-        throw new Error(`No next node(s) found after paused node ${startNodeId}`);
-      }
+      // Resume: use the paused node itself as the start node
+      startNodes = [nodeMap.get(startNodeId)];
+      console.log('[Resume Debug] Resuming from paused node itself:', startNodeId, 'node:', nodeMap.get(startNodeId));
     } else {
       // Find start nodes (nodes with no incoming edges)
       startNodes = nodes.filter((node) => !edges.some((edge) => edge.target === node.id));
       if (startNodes.length === 0) {
         throw new Error("No start node found in workflow");
       }
+      console.log('[Resume Debug] No resume node, using start nodes:', startNodes.map(n => n.id));
     }
 
     // Initialize execution state
-    const executionState = {
-      completedNodes: new Set(),
-      nodeResults: new Map(),
-      context: {
-        ...initialInputs,
-        // Add common template variables
-        timestamp: new Date().toISOString(),
-        executionId: executionId,
-        workflowId: workflow._id?.toString() || workflow.id,
-        workflowName: workflow.name,
-      },
-    };
+    // Initialize execution state if not provided
+    if (!executionState) {
+      executionState = {
+        completedNodes: new Set(),
+        nodeResults: new Map(),
+        context: {
+          ...initialInputs,
+          // Add common template variables
+          timestamp: new Date().toISOString(),
+          executionId: executionId,
+          workflowId: workflow._id?.toString() || workflow.id,
+          workflowName: workflow.name,
+        },
+      };
+    }
 
     // Execute nodes
     const results = await this.executeNodeSequence(executionId, startNodes, nodeMap, edgeMap, executionState);
@@ -146,6 +151,7 @@ class WorkflowExecutionService {
   }
 
   async executeNodeSequence(executionId, currentNodes, nodeMap, edgeMap, executionState) {
+    console.log('TEST LOG - executeNodeSequence called');
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution || activeExecution.aborted) {
       throw new Error("Execution aborted");
@@ -155,7 +161,7 @@ class WorkflowExecutionService {
     const results = [];
 
     for (const node of currentNodes) {
-    workflowLogger.log("Node execution started", { executionId, nodeId: node.id, nodeType: node.type, input: executionState.context });
+      workflowLogger.log("Node execution started", { executionId, nodeId: node.id, nodeType: node.type, input: executionState.context });
       if (executionState.completedNodes.has(node.id)) {
         continue;
       }
@@ -173,19 +179,24 @@ class WorkflowExecutionService {
 
         // Execute node
         const nodeResult = await this.executeNode(executionId, node, executionState.context);
-  workflowLogger.log("Node execution completed", { executionId, nodeId: node.id, output: nodeResult.output, metadata: nodeResult.metadata });
+        workflowLogger.log("Node execution completed", { executionId, nodeId: node.id, output: nodeResult.output, metadata: nodeResult.metadata });
 
         // Check if this is a human review node that requires pausing
         if (nodeResult.requiresHumanReview) {
-  workflowLogger.log("Human review required", { executionId, nodeId: node.id, nodeResult });
+          console.log('[Debug] executeNodeSequence: About to call handleHumanReviewNode', {
+            nodeId: node.id,
+            nodeType: node.type,
+            nodeResult
+          });
+          workflowLogger.log("Human review required", { executionId, nodeId: node.id, nodeResult });
           await this.handleHumanReviewNode(executionId, node, nodeResult, executionState);
-  workflowLogger.log("Handled human review node", { executionId, nodeId: node.id });
+          workflowLogger.log("Handled human review node", { executionId, nodeId: node.id });
           return results; // Stop execution here, workflow is paused
         }
 
         // Update context with node result
         if (nodeResult.output) {
-  workflowLogger.log("Node output", { executionId, nodeId: node.id, output: nodeResult.output });
+          workflowLogger.log("Node output", { executionId, nodeId: node.id, output: nodeResult.output });
           if (typeof nodeResult.output === "object") {
             executionState.context = { ...executionState.context, ...nodeResult.output };
           } else {
@@ -227,6 +238,7 @@ class WorkflowExecutionService {
 
         // Find next nodes
         const nextNodes = this.getNextNodes(node.id, edgeMap, nodeMap, nodeResult);
+        console.log('[Resume Debug] nextNodes after', node.id, ':', nextNodes.map(n => n.id));
 
         if (nextNodes.length > 0) {
           // Execute next nodes
@@ -272,6 +284,7 @@ class WorkflowExecutionService {
   }
 
   async executeNode(executionId, node, context) {
+    console.log('[Debug] ENTER executeNode', { executionId, nodeId: node.id });
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
       throw new Error("Execution not found");
@@ -292,6 +305,13 @@ class WorkflowExecutionService {
       } else {
         result = await this.langChainService.executeNode(node, context);
       }
+
+      // Debug: print node type and result before returning
+      console.log('[Debug] executeNode: node type and result', {
+        nodeId: node.id,
+        nodeType: node.type,
+        result
+      });
 
       // Add execution metadata
       result.executionId = executionId;
@@ -352,6 +372,9 @@ class WorkflowExecutionService {
   }
 
   async pauseExecutionForHumanReview(executionId, nodeId, context) {
+  workflowLogger.log('[Debug] ENTER pauseExecutionForHumanReview', { executionId, nodeId });
+  console.log('[Debug] ENTER pauseExecutionForHumanReview', { executionId, nodeId });
+  console.trace('[Trace] pauseExecutionForHumanReview call stack');
     // Set workflow execution status to paused
     const execution = await WorkflowExecution.findOne({ executionId });
     execution.status = 'waiting_human_review';
@@ -364,7 +387,11 @@ class WorkflowExecutionService {
       lastNodeId: nodeId, // <-- Add this for resume logic
       context,
     };
+    console.log('[Debug] pauseExecutionForHumanReview: Set pauseState.lastNodeId =', nodeId);
     await execution.save();
+  // Debug: print execution after save (suppressed to avoid large console output)
+  // const fresh = await WorkflowExecution.findOne({ executionId });
+  // console.log('[Debug] pauseExecutionForHumanReview: execution after save:', JSON.stringify(fresh, null, 2));
   }
 
   async executeHumanReviewNode(executionId, node, context) {
@@ -620,38 +647,41 @@ class WorkflowExecutionService {
         executionId: executionId,
       });
 
-      // Check if approved or rejected
-      if (approvalResult.decision === "approved") {
-        // Continue workflow to next nodes
-        const { workflow } = activeExecution;
-        const { nodes, edges } = workflow;
-        const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-        const edgeMap = this.buildEdgeMap(edges);
+      // Always try to continue workflow to next nodes, using selectedAction/decision for edge matching
+      const { workflow } = activeExecution;
+      const { nodes, edges } = workflow;
+      const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+      const edgeMap = this.buildEdgeMap(edges);
 
-        const nextNodes = this.getNextNodes(nodeId, edgeMap, nodeMap, { success: true });
+      // Pass selectedAction, decision, and output for edge condition matching
+      const nodeResult = {
+        success: approvalResult.decision === "approved",
+        selectedAction: approvalResult.selectedAction || approvalResult.decision,
+        decision: approvalResult.decision,
+        output: approvalResult.selectedAction || approvalResult.decision,
+        approvalResult // for debugging
+      };
+      const nextNodes = this.getNextNodes(nodeId, edgeMap, nodeMap, nodeResult);
 
-        if (nextNodes.length > 0) {
-          // Continue execution with next nodes
-          const executionState = {
-            completedNodes: new Set([nodeId]),
-            nodeResults: new Map([[nodeId, { success: true, output: approvalResult }]]),
-            context: activeExecution.context,
-          };
+      if (nextNodes.length > 0) {
+        // Continue execution with next nodes
+        const executionState = {
+          completedNodes: new Set([nodeId]),
+          nodeResults: new Map([[nodeId, nodeResult]]),
+          context: activeExecution.context,
+        };
 
-          await this.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
-        } else {
-          // No more nodes, complete workflow
-          this.completeExecution(executionId, "completed", {
-            finalDecision: "approved",
-            approvalDetails: approvalResult,
-          });
-        }
+        await this.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
       } else {
-        // Workflow rejected, complete with rejection status
-        this.completeExecution(executionId, "rejected", {
-          finalDecision: "rejected",
-          rejectionReason: approvalResult.feedback,
-        });
+        // No more nodes, complete workflow
+        this.completeExecution(
+          executionId,
+          approvalResult.decision === "approved" ? "completed" : "rejected",
+          {
+            finalDecision: approvalResult.decision,
+            approvalDetails: approvalResult,
+          }
+        );
       }
     } catch (error) {
       this.completeExecution(executionId, "failed", null, error);
@@ -750,16 +780,30 @@ class WorkflowExecutionService {
     const edges = edgeMap.get(currentNodeId) || [];
     const nextNodes = [];
 
+    console.log('[getNextNodes Debug] Called with:', {
+      currentNodeId,
+      nodeResult,
+      edgeCount: edges.length
+    });
+
     for (const edge of edges) {
-      // Check edge conditions
-      if (this.shouldFollowEdge(edge, nodeResult)) {
+      console.log('[getNextNodes Debug] Checking edge:', {
+        source: edge.source,
+        target: edge.target,
+        condition: edge.condition
+      });
+      const shouldFollow = this.shouldFollowEdge(edge, nodeResult);
+      console.log('[getNextNodes Debug] shouldFollowEdge result:', shouldFollow);
+      if (shouldFollow) {
         const nextNode = nodeMap.get(edge.target);
         if (nextNode) {
           nextNodes.push(nextNode);
+          console.log('[getNextNodes Debug] Adding nextNode:', nextNode.id);
         }
       }
     }
 
+    console.log('[getNextNodes Debug] Returning nextNodes:', nextNodes.map(n => n.id));
     return nextNodes;
   }
 
@@ -769,7 +813,14 @@ class WorkflowExecutionService {
       return true;
     }
 
-    // Evaluate edge condition
+    // Support string conditions (e.g., 'proceed', 'reject') for human review/action nodes
+    if (typeof edge.condition === 'string') {
+      // Try to match against nodeResult.selectedAction, nodeResult.decision, or nodeResult.output
+      const action = nodeResult?.selectedAction || nodeResult?.decision || nodeResult?.output;
+      return action === edge.condition;
+    }
+
+    // Evaluate edge condition object
     try {
       const { type, value } = edge.condition;
 
@@ -969,6 +1020,9 @@ class WorkflowExecutionService {
    * Handle human review node - pause workflow and create external task if configured
    */
   async handleHumanReviewNode(executionId, node, nodeResult, executionState) {
+  workflowLogger.log('[Debug] ENTER handleHumanReviewNode', { executionId, nodeId: node.id });
+  console.log('[Debug] ENTER handleHumanReviewNode', { executionId, nodeId: node.id });
+  console.trace('[Trace] handleHumanReviewNode call stack');
     const activeExecution = this.activeExecutions.get(executionId);
     if (!activeExecution) {
       throw new Error("Execution not found");
@@ -980,13 +1034,25 @@ class WorkflowExecutionService {
         { executionId },
         {
           status: "waiting_human_review",
-          "pauseState.isPaused": true,
-          "pauseState.pausedAt": new Date(),
-          "pauseState.pausedBy": "system",
-          "pauseState.pauseReason": "human_review_required",
-          "pauseState.currentNodeId": node.id,
+          pauseState: {
+            isPaused: true,
+            pausedAt: new Date(),
+            pausedBy: "system",
+            pauseReason: "human_review_required",
+            currentNodeId: node.id,
+            lastNodeId: node.id,
+          }
         }
       );
+      // Fetch and log the updated execution.pauseState
+      const updated = await WorkflowExecution.findOne({ executionId });
+      console.log('[Debug] handleHumanReviewNode: Set pauseState.lastNodeId =', updated.pauseState?.lastNodeId);
+      // Log before enqueuing resume job (simulate, since actual enqueue is elsewhere)
+      // If you enqueue here, log the value:
+      // console.log('[Debug] handleHumanReviewNode: About to enqueue resume job with pauseState.lastNodeId =', updated.pauseState?.lastNodeId);
+  // Debug: print execution after update (suppressed to avoid large console output)
+  // const fresh = await WorkflowExecution.findOne({ executionId });
+  // console.log('[Debug] handleHumanReviewNode: execution after update:', JSON.stringify(fresh, null, 2));
 
       // Log the human review step as waiting
       await this.logExecutionStep(executionId, {
@@ -1268,38 +1334,102 @@ class WorkflowExecutionService {
    * Resume workflow from paused state (called by BullMQ worker)
    */
   static async resumeWorkflow(executionId, resumeData) {
-  // Load execution and workflow from DB
-  const execution = await WorkflowExecution.findOne({ executionId });
-  if (!execution) throw new Error('Execution not found');
-  const workflow = await require('../models/Workflow').findById(execution.workflowId);
-  if (!workflow) throw new Error('Workflow not found');
+    console.log('[Resume Debug] resumeWorkflow CALLED for executionId:', executionId);
+    // Debug: Log resumeData and pauseState
+    console.log('[Resume Debug] resumeData:', resumeData);
+    if (resumeData && resumeData.actionId) {
+      console.log('[Resume Debug] Human review actionId:', resumeData.actionId);
+    }
+    if (resumeData && resumeData.feedback) {
+      console.log('[Resume Debug] Human review feedback:', resumeData.feedback);
+    }
+    // Load execution and workflow from DB
+    const execution = await WorkflowExecution.findOne({ executionId });
+    if (!execution) throw new Error('Execution not found');
+    console.log('[Resume Debug] execution.pauseState:', execution.pauseState);
+    const workflow = await require('../models/Workflow').findById(execution.workflowId);
+    if (!workflow) throw new Error('Workflow not found');
 
-  // Restore context/state
-  const context = resumeData.context || execution.inputs;
-  // Set status to running
-  execution.status = 'running';
-  execution.pauseState = { isPaused: false };
-  await execution.save();
+    // Restore context/state
+    // Map actionId to selectedAction/decision for edge matching
+    let context = resumeData.context || execution.inputs;
+    if (resumeData && resumeData.actionId) {
+      context = {
+        ...context,
+        selectedAction: resumeData.actionId,
+        decision: resumeData.actionId,
+        output: resumeData.actionId,
+      };
+    }
+    // Set status to running
+    execution.status = 'running';
+    execution.pauseState = { ...execution.pauseState, isPaused: false };
+    await execution.save();
 
-  // Find the node where we paused (e.g., human review node)
-  // Assume pauseState.lastNodeId is set when pausing
-  const lastNodeId = execution.pauseState?.lastNodeId || resumeData.lastNodeId;
-  const service = new this();
-  service.activeExecutions.set(executionId, { execution, context });
-  if (!lastNodeId) {
-    // Fallback: start from beginning if not set
-    return await service.executeWorkflowNodes(executionId, workflow, context);
-  }
-  // Pass __resumeFromNodeId in initialInputs to executeWorkflowNodes
-  const resumeInputs = { ...context, __resumeFromNodeId: lastNodeId };
-  return await service.executeWorkflowNodes(executionId, workflow, resumeInputs);
+    // Find the node where we paused (e.g., human review node)
+    // Assume pauseState.lastNodeId is set when pausing
+    const lastNodeId = execution.pauseState?.lastNodeId || resumeData.lastNodeId;
+    console.log('[Resume Debug] lastNodeId used for resume:', lastNodeId, 'resumeData.lastNodeId:', resumeData.lastNodeId, 'pauseState.lastNodeId:', execution.pauseState?.lastNodeId);
+    const service = new this();
+    service.activeExecutions.set(executionId, { execution, context });
+    if (!lastNodeId) {
+      // Fallback: start from beginning if not set
+      console.log('[Resume Debug] No lastNodeId found, starting from beginning');
+      return await service.executeWorkflowNodes(executionId, workflow, context);
+    }
+    // Pass __resumeFromNodeId in initialInputs to executeWorkflowNodes
+    // Rebuild completedNodes set from execution.steps
+    const completedNodes = new Set();
+    if (Array.isArray(execution.steps)) {
+      for (const step of execution.steps) {
+        if (step.status === 'completed' && step.nodeId) {
+          completedNodes.add(step.nodeId);
+        }
+      }
+    }
+    console.log('[Resume Debug] completedNodes set:', Array.from(completedNodes));
+    const resumeInputs = { ...context, __resumeFromNodeId: lastNodeId };
+    // Set nodeResults for the resumed node so getNextNodes can match edge conditions
+    const nodeResults = new Map();
+    let nodeResultForResume = null;
+    if (lastNodeId && resumeData && resumeData.actionId) {
+      nodeResultForResume = {
+        success: resumeData.actionId === 'proceed',
+        selectedAction: resumeData.actionId,
+        decision: resumeData.actionId,
+        output: resumeData.actionId,
+        feedback: resumeData.feedback,
+        resumeData
+      };
+      nodeResults.set(lastNodeId, nodeResultForResume);
+    }
+    const executionState = {
+      completedNodes,
+      nodeResults,
+      context: resumeInputs,
+    };
+    // Instead of re-executing the paused node, jump to next node(s)
+    const nodeMap = new Map(workflow.nodes.map((node) => [node.id, node]));
+    const edgeMap = service.buildEdgeMap(workflow.edges);
+    let nextNodes = [];
+    if (lastNodeId && nodeResultForResume) {
+      nextNodes = service.getNextNodes(lastNodeId, edgeMap, nodeMap, nodeResultForResume);
+      console.log('[Resume Debug] Next nodes after human review:', nextNodes.map(n => n.id));
+    }
+    if (nextNodes.length === 0) {
+      console.log('[Resume Debug] No next nodes found after resume, ending execution.');
+      return;
+    }
+    // Start execution from next node(s)
+    return await service.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
   }
 
   /**
    * Enqueue workflow resume job (call this from human review API)
    */
   static async enqueueResumeJob(executionId, resumeData) {
-    await workflowResumeQueue.add('resume', { executionId, resumeData });
+    console.log('[Enqueue Debug] Attempting to enqueue resume job:', { executionId, resumeData });
+    await workflowResumeQueue.add('resume', { executionId, resumeData }, { removeOnComplete: false, removeOnFail: false });
   }
 }
 

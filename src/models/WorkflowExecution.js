@@ -180,6 +180,9 @@ const workflowExecutionSchema = new mongoose.Schema({
     averageStepTime: Number,
     bottleneckSteps: [String] // Step IDs that took longest
   },
+
+  // Pause State for HITL workflows
+  pauseState: mongoose.Schema.Types.Mixed,
   
   // Audit & Compliance
   auditLog: [{
