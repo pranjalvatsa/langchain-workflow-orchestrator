@@ -2,9 +2,9 @@ console.log('TEST LOG - FILE LOADED');
 const { WorkflowExecution } = require("../models");
 const workflowLogger = require("../utils/workflowLogger");
 const LangChainService = require("./LangChainService");
-const { workflowResumeQueue } = require('./bullmq-queue');
 const Task = require('../models/Task');
 const WorkflowStepLog = require('../models/WorkflowStepLog');
+require("dotenv").config();
 
 class WorkflowExecutionService {
   constructor(io) {
@@ -86,7 +86,7 @@ class WorkflowExecutionService {
     }
   }
 
-  async executeWorkflowNodes(executionId, workflow, initialInputs, executionState = null) {    // Debug: Log resume node selection
+  async executeWorkflowNodes(executionId, workflow, initialInputs, executionState = null) {
     // Debug: Log resume node selection
     const startNodeId = initialInputs && initialInputs.__resumeFromNodeId;
     if (startNodeId) {
@@ -127,7 +127,6 @@ class WorkflowExecutionService {
       console.log('[Resume Debug] No resume node, using start nodes:', startNodes.map(n => n.id));
     }
 
-    // Initialize execution state
     // Initialize execution state if not provided
     if (!executionState) {
       executionState = {
@@ -181,7 +180,67 @@ class WorkflowExecutionService {
         const nodeResult = await this.executeNode(executionId, node, executionState.context);
         workflowLogger.log("Node execution completed", { executionId, nodeId: node.id, output: nodeResult.output, metadata: nodeResult.metadata });
 
-        // Check if this is a human review node that requires pausing
+        // Check if this is a HITL node that requires pausing (LangGraph interrupt)
+        if (nodeResult.interrupt === true) {
+          console.log('[Debug] executeNodeSequence: LangGraph HITL interrupt detected', {
+            nodeId: node.id,
+            nodeType: node.type,
+            threadId: nodeResult.threadId,
+            nextSteps: nodeResult.next
+          });
+          workflowLogger.log("LangGraph HITL interrupt - workflow paused", { 
+            executionId, 
+            nodeId: node.id, 
+            threadId: nodeResult.threadId,
+            message: nodeResult.message 
+          });
+          
+          // Log step as waiting for human review (not completed!)
+          await this.logExecutionStep(executionId, {
+            stepId: `step_${node.id}_${Date.now()}`,
+            nodeId: node.id,
+            nodeType: node.type,
+            status: "waiting_human_review",
+            startedAt: new Date(),
+            output: nodeResult,
+            metadata: {
+              threadId: nodeResult.threadId,
+              interruptMessage: nodeResult.message,
+              pendingActions: nodeResult.next,
+            },
+          });
+          
+          // Also create WorkflowStepLog with waiting_human_review status
+          await WorkflowStepLog.create({
+            executionId,
+            workflowId: executionState.context.workflowId,
+            nodeId: node.id,
+            nodeType: node.type,
+            stepIndex: executionState.context.stepIndex || null,
+            inputData: executionState.context,
+            outputData: nodeResult,
+            previousNodeId: executionState.context.previousNodeId || null,
+            previousOutput: executionState.context.previousOutput || null,
+            status: 'waiting_human_review',
+            error: null,
+            timestamp: new Date(),
+            durationMs: 0,
+          });
+          console.log('[Debug] Created WorkflowStepLog with status: waiting_human_review for node:', node.id);
+          
+          // Create a Task for UI/API to display
+          await this.createHumanReviewTask(executionId, node, {
+            ...executionState.context,
+            interruptData: nodeResult,
+            threadId: nodeResult.threadId,
+          });
+          
+          // Save the interrupt state for resumption
+          await this.pauseExecutionForHITL(executionId, node.id, nodeResult, executionState.context);
+          return results; // Stop execution here, workflow is paused
+        }
+
+        // Check if this is a human review node that requires pausing (legacy)
         if (nodeResult.requiresHumanReview) {
           console.log('[Debug] executeNodeSequence: About to call handleHumanReviewNode', {
             nodeId: node.id,
@@ -318,22 +377,39 @@ class WorkflowExecutionService {
       result.nodeId = node.id;
       result.timestamp = new Date();
 
-      // Log workflow step
-      await WorkflowStepLog.create({
-        executionId,
-        workflowId: context.workflowId,
+      // Only log to WorkflowStepLog if this is NOT an interrupt/pause scenario
+      // For HITL nodes, logging happens in executeNodeSequence after detecting interrupt
+      const shouldLogStep = !result.interrupt && !result.requiresHumanReview;
+      
+      console.log('[Debug] executeNode - shouldLogStep check:', {
         nodeId: node.id,
         nodeType: node.type,
-        stepIndex: context.stepIndex || null,
-        inputData: context,
-        outputData: result,
-        previousNodeId,
-        previousOutput,
-        status: result.status || 'completed',
-        error: result.error || null,
-        timestamp: result.timestamp,
-        durationMs: Date.now() - startTime,
+        hasInterrupt: result.interrupt,
+        hasRequiresHumanReview: result.requiresHumanReview,
+        shouldLogStep,
       });
+      
+      if (shouldLogStep) {
+        // Log workflow step
+        console.log('[Debug] Creating WorkflowStepLog with status:', result.status || 'completed');
+        await WorkflowStepLog.create({
+          executionId,
+          workflowId: context.workflowId,
+          nodeId: node.id,
+          nodeType: node.type,
+          stepIndex: context.stepIndex || null,
+          inputData: context,
+          outputData: result,
+          previousNodeId,
+          previousOutput,
+          status: result.status || 'completed',
+          error: result.error || null,
+          timestamp: result.timestamp,
+          durationMs: Date.now() - startTime,
+        });
+      } else {
+        console.log('[Debug] Skipping WorkflowStepLog creation for interrupt/pause node:', node.id);
+      }
 
       return result;
     } catch (error) {
@@ -358,17 +434,47 @@ class WorkflowExecutionService {
 
   async createHumanReviewTask(executionId, node, context) {
     // Create a task in DB for human review
+    const interruptData = context.interruptData;
+    const threadId = context.threadId;
+    
+    // Default actions for HITL nodes
+    const actions = node.data.actions || [
+      {
+        id: 'approve',
+        label: 'Approve',
+        description: 'Approve and continue with the pending actions',
+        loopBackNodeId: null,
+      },
+      {
+        id: 'reject',
+        label: 'Reject',
+        description: 'Reject and skip the pending actions',
+        loopBackNodeId: null,
+      },
+    ];
+    
     const task = new Task({
       executionId,
       nodeId: node.id,
       workflowId: context.workflowId,
       status: 'pending',
-      data: context,
-      actions: node.data.actions || [],
+      data: {
+        ...context,
+        interruptMessage: interruptData?.message,
+        pendingActions: interruptData?.next,
+        agentState: interruptData?.state,
+      },
+      actions,
+      metadata: {
+        threadId,
+        nodeType: node.type,
+        interruptType: 'langgraph_hitl',
+      },
       createdAt: new Date(),
     });
     await task.save();
-    // Optionally notify human reviewers (e.g., via websocket, email, etc.)
+    console.log(`[HITL] Created task ${task._id} for node ${node.id} in execution ${executionId}`);
+    return task;
   }
 
   async pauseExecutionForHumanReview(executionId, nodeId, context) {
@@ -392,6 +498,45 @@ class WorkflowExecutionService {
   // Debug: print execution after save (suppressed to avoid large console output)
   // const fresh = await WorkflowExecution.findOne({ executionId });
   // console.log('[Debug] pauseExecutionForHumanReview: execution after save:', JSON.stringify(fresh, null, 2));
+  }
+
+  /**
+   * Pause execution for LangGraph HITL interrupt
+   */
+  async pauseExecutionForHITL(executionId, nodeId, nodeResult, context) {
+    console.log('[Debug] ENTER pauseExecutionForHITL', { executionId, nodeId, threadId: nodeResult.threadId });
+    
+    const execution = await WorkflowExecution.findOne({ executionId });
+    execution.status = 'waiting_human_review';
+    execution.pauseState = {
+      isPaused: true,
+      pausedAt: new Date(),
+      pausedBy: 'system',
+      pauseReason: 'langgraph_hitl_interrupt',
+      currentNodeId: nodeId,
+      lastNodeId: nodeId,
+      threadId: nodeResult.threadId, // Store LangGraph thread ID
+      interruptData: {
+        next: nodeResult.next,
+        state: nodeResult.state,
+        message: nodeResult.message,
+        pendingTools: nodeResult.pendingTools,
+      },
+      context,
+    };
+    
+    await execution.save();
+    console.log('[Debug] pauseExecutionForHITL: Execution paused with threadId =', nodeResult.threadId);
+    
+    // Emit event for UI
+    this.emitExecutionEvent(executionId, "workflow:hitl_interrupt", {
+      executionId,
+      nodeId,
+      threadId: nodeResult.threadId,
+      message: nodeResult.message,
+      nextSteps: nodeResult.next,
+      state: nodeResult.state,
+    });
   }
 
   async executeHumanReviewNode(executionId, node, context) {
@@ -1331,7 +1476,7 @@ class WorkflowExecutionService {
   }
 
   /**
-   * Resume workflow from paused state (called by BullMQ worker)
+   * Resume workflow from paused state (legacy method - may be unused now)
    */
   static async resumeWorkflow(executionId, resumeData) {
     console.log('[Resume Debug] resumeWorkflow CALLED for executionId:', executionId);
@@ -1422,14 +1567,6 @@ class WorkflowExecutionService {
     }
     // Start execution from next node(s)
     return await service.executeNodeSequence(executionId, nextNodes, nodeMap, edgeMap, executionState);
-  }
-
-  /**
-   * Enqueue workflow resume job (call this from human review API)
-   */
-  static async enqueueResumeJob(executionId, resumeData) {
-    console.log('[Enqueue Debug] Attempting to enqueue resume job:', { executionId, resumeData });
-    await workflowResumeQueue.add('resume', { executionId, resumeData }, { removeOnComplete: false, removeOnFail: false });
   }
 }
 

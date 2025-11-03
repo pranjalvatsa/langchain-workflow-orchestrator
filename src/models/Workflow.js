@@ -7,7 +7,7 @@ const workflowNodeSchema = new mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: ["trigger", "start", "end", "agent", "llm", "tool", "condition", "loop", "humanReview", "webhook", "delay", "parallel", "merge"],
+      enum: ["trigger", "start", "end", "agent", "llm", "tool", "condition", "loop", "humanReview", "webhook", "delay", "parallel", "merge", "agent_with_hitl"],
     },
     position: {
       x: { type: Number, required: true },

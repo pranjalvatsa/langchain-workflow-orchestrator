@@ -708,6 +708,9 @@ class LangChainService {
         case "human_review":
           return await this.executeHumanReviewNode(nodeConfig, context);
 
+        case "agent_with_hitl":
+          return await this.executeAgentWithHITLNode(nodeConfig, context);
+
         case "prompt":
           return await this.executePromptNode(config, context);
 
@@ -725,6 +728,88 @@ class LangChainService {
       }
     } catch (error) {
       throw error;
+    }
+  }
+
+  /**
+   * Execute a node using LangChain's Human-in-the-Loop middleware.
+   * This node type will pause for human review if configured.
+   * NOTE: Requires @langchain/langgraph to be properly installed
+   */
+  async executeAgentWithHITLNode(nodeConfig, context = {}) {
+    try {
+      const { createReactAgent } = require("@langchain/langgraph/prebuilt");
+      const { MemorySaver } = require("@langchain/langgraph");
+      const { HumanMessage } = require("@langchain/core/messages");
+      
+      // Check if this is a resume operation (has threadId from previous interrupt)
+      const isResume = context._isResumeFromHITL === true;
+      
+      // Get tools for the agent
+      const tools = Array.from(this.tools.values());
+      
+      // Get model - use a fresh instance with explicit API key to avoid placeholder issues
+      const { ChatOpenAI } = require("@langchain/openai");
+      const model = new ChatOpenAI({
+        modelName: "gpt-4o-mini",
+        temperature: 0.7,
+        openAIApiKey: process.env.OPENAI_API_KEY,
+      });
+      
+      // Create agent with checkpointer for state persistence
+      const checkpointer = new MemorySaver();
+      const agent = createReactAgent({
+        llm: model,
+        tools,
+        checkpointSaver: checkpointer,
+      });
+
+      // Create or reuse thread ID for this execution
+      const threadId = context.threadId || context.executionId || `thread_${Date.now()}`;
+      const config = { 
+        configurable: { thread_id: threadId },
+        // Configure interruption before tool calls
+        interruptBefore: nodeConfig.data?.interruptBefore || ["tools"],
+      };
+
+      // For HITL nodes, we ALWAYS interrupt on first execution (not a resume)
+      // This ensures human review happens before ANY agent actions
+      if (!isResume) {
+        console.log('[HITL] First execution - interrupting for human review');
+        
+        // Prepare input message for agent planning
+        const input = nodeConfig.data?.prompt || nodeConfig.data?.input || context.input || "Proceed with workflow step.";
+        
+        // Return interrupt immediately to pause workflow
+        return {
+          interrupt: true,
+          threadId,
+          state: { input, context },
+          next: ["human_approval"],
+          pendingTools: tools.map(t => t.name),
+          message: `Human review required before proceeding with workflow step`,
+        };
+      }
+
+      // This is a resume - continue agent execution with approval
+      console.log('[HITL] Resuming agent execution after approval');
+      
+      // Prepare input message
+      const input = nodeConfig.data?.prompt || nodeConfig.data?.input || context.input || "Proceed with workflow step.";
+      const messages = [new HumanMessage(input)];
+
+      // Invoke the agent (will now execute tools since approved)
+      const result = await agent.invoke({ messages }, config);
+
+      // Agent completed successfully
+      return { 
+        success: true, 
+        output: result.messages[result.messages.length - 1].content,
+        threadId,
+      };
+    } catch (error) {
+      console.error("Error in executeAgentWithHITLNode:", error);
+      throw new Error(`HITL Agent execution failed: ${error.message}`);
     }
   }
 

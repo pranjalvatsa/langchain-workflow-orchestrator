@@ -11,6 +11,8 @@ const taskSchema = new mongoose.Schema({
     label: { type: String, required: true },
     loopBackNodeId: { type: String }, // Optional, for rejection loop-back
   }],
+  metadata: { type: mongoose.Schema.Types.Mixed }, // Additional metadata (e.g., interruptType, threadId, nodeType)
+  result: { type: mongoose.Schema.Types.Mixed }, // Result after completion
   feedback: { type: String }, // Human feedback
   completedAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
