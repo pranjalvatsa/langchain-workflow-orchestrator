@@ -1,0 +1,491 @@
+{
+  "name": "Test Drive Booking - Voice Agent",
+  "description": "Voice agent workflow for vehicle test-drive booking with conversation management and human approval",
+  "category": "sales",
+  "tags": ["voice-agent", "test-drive", "sales", "automotive", "booking"],
+  "nodes": [
+    {
+      "id": "start-node",
+      "type": "start",
+      "position": { "x": 100, "y": 300 },
+      "data": {
+        "label": "Start Call",
+        "description": "Initialize voice agent session"
+      }
+    },
+    {
+      "id": "speech-to-text",
+      "type": "tool",
+      "position": { "x": 250, "y": 200 },
+      "data": {
+        "label": "Convert Voice to Text",
+        "description": "Transcribe customer voice input using Whisper",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://api.openai.com/v1/audio/transcriptions",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${OPENAI_API_KEY}"
+          },
+          "body": {
+            "file": "{{inputs.audioFile}}",
+            "model": "whisper-1",
+            "language": "en",
+            "response_format": "json"
+          }
+        }
+      }
+    },
+    {
+      "id": "greeting-agent",
+      "type": "llm",
+      "position": { "x": 300, "y": 300 },
+      "data": {
+        "label": "Greeting & Interest Collection",
+        "description": "Voice agent greets customer and asks about vehicle interest",
+        "prompt": "You are a friendly automotive sales voice agent. Your goal is to:\n1. Greet the customer warmly\n2. Ask what type of vehicle they're interested in (car, bike, SUV, electric vehicle, etc.)\n3. Capture their specific preferences (brand, model, features)\n4. Keep responses conversational and brief (suitable for voice - max 2-3 sentences)\n5. Use natural language, avoid technical jargon\n\nCustomer said: {{speech-to-text.output.text}}\n\nRespond naturally and ask relevant follow-up questions about their vehicle preferences.",
+        "model": "gpt-4o-audio-preview",
+        "temperature": 0.7,
+        "maxTokens": 200,
+        "modality": "text",
+        "audio": {
+          "voice": "alloy",
+          "format": "mp3"
+        }
+      }
+    },
+    {
+      "id": "text-to-speech",
+      "type": "tool",
+      "position": { "x": 350, "y": 400 },
+      "data": {
+        "label": "Convert Text to Voice",
+        "description": "Generate voice response using OpenAI TTS",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://api.openai.com/v1/audio/speech",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "tts-1",
+            "voice": "nova",
+            "input": "{{greeting-agent.output}}",
+            "response_format": "mp3",
+            "speed": 1.0
+          }
+        }
+      }
+    },
+    {
+      "id": "extract-preferences",
+      "type": "llm",
+      "position": { "x": 550, "y": 300 },
+      "data": {
+        "label": "Extract Vehicle Preferences",
+        "description": "Parse conversation and extract structured preferences",
+        "prompt": "Based on the following conversation with a customer, extract their vehicle preferences in JSON format:\n\nConversation: {{greeting-agent.output}}\n\nExtract:\n1. Vehicle type (car/bike/suv/electric/other)\n2. Preferred brands (array)\n3. Preferred models (array)\n4. Key features mentioned\n5. Budget range if mentioned\n6. Urgency level (high/medium/low)\n\nReturn ONLY valid JSON in this format:\n{\n  \"vehicleType\": \"string\",\n  \"brands\": [\"string\"],\n  \"models\": [\"string\"],\n  \"features\": [\"string\"],\n  \"budgetRange\": \"string or null\",\n  \"urgency\": \"high|medium|low\"\n}",
+        "model": "gpt-4",
+        "temperature": 0.2
+      }
+    },
+    {
+      "id": "inventory-check",
+      "type": "tool",
+      "position": { "x": 800, "y": 300 },
+      "data": {
+        "label": "Check Inventory",
+        "description": "Check if requested vehicles are available for test drive",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://your-inventory-api.com/check-availability",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${INVENTORY_API_KEY}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "vehicleType": "{{extract-preferences.output.vehicleType}}",
+            "brands": "{{extract-preferences.output.brands}}",
+            "models": "{{extract-preferences.output.models}}",
+            "location": "{{inputs.dealershipLocation}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "availability-check",
+      "type": "condition",
+      "position": { "x": 1050, "y": 300 },
+      "data": {
+        "label": "Vehicle Available?",
+        "description": "Check if requested vehicles are in stock",
+        "condition": "{{inventory-check.output.available}} === true"
+      }
+    },
+    {
+      "id": "not-available-response",
+      "type": "llm",
+      "position": { "x": 1050, "y": 500 },
+      "data": {
+        "label": "No Availability Response",
+        "description": "Inform customer and offer alternatives",
+        "prompt": "The customer requested:\nVehicle Type: {{extract-preferences.output.vehicleType}}\nBrands: {{extract-preferences.output.brands}}\nModels: {{extract-preferences.output.models}}\n\nBut we don't have exact matches available. Here are our alternatives:\n{{inventory-check.output.alternatives}}\n\nWrite a friendly, conversational voice response (2-3 sentences) offering these alternatives and asking if they'd like to schedule a test drive for any of them.",
+        "model": "gpt-4",
+        "temperature": 0.7
+      }
+    },
+    {
+      "id": "stt-schedule",
+      "type": "tool",
+      "position": { "x": 1250, "y": 200 },
+      "data": {
+        "label": "Voice to Text (Schedule)",
+        "description": "Transcribe scheduling conversation",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://api.openai.com/v1/audio/transcriptions",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${OPENAI_API_KEY}"
+          },
+          "body": {
+            "file": "{{inputs.audioFile}}",
+            "model": "whisper-1"
+          }
+        }
+      }
+    },
+    {
+      "id": "schedule-preferences",
+      "type": "llm",
+      "position": { "x": 1300, "y": 300 },
+      "data": {
+        "label": "Collect Schedule Preferences",
+        "description": "Voice agent asks for preferred date/time for test drive",
+        "prompt": "You are a friendly automotive sales voice agent helping schedule a test drive. The customer is interested in:\n\nVehicle: {{extract-preferences.output.vehicleType}}\nModels: {{extract-preferences.output.models}}\n\nAvailable vehicles: {{inventory-check.output.availableVehicles}}\n\nCustomer said: {{stt-schedule.output.text}}\n\nYour task:\n1. Confirm which specific vehicle(s) they want to test drive\n2. Ask for their preferred date and time\n3. Collect their contact information (name, phone, email)\n4. Confirm their visit location/dealership\n\nExample: 'Perfect! We have the [model] available for you. When would work best for your test drive? We're open Monday through Saturday, 9 AM to 6 PM.'\n\nKeep responses to 2-3 sentences max for voice.",
+        "model": "gpt-4o-audio-preview",
+        "temperature": 0.7,
+        "maxTokens": 200
+      }
+    },
+    {
+      "id": "tts-schedule",
+      "type": "tool",
+      "position": { "x": 1350, "y": 400 },
+      "data": {
+        "label": "Text to Voice (Schedule)",
+        "description": "Generate voice for scheduling response",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://api.openai.com/v1/audio/speech",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${OPENAI_API_KEY}"
+          },
+          "body": {
+            "model": "tts-1-hd",
+            "voice": "nova",
+            "input": "{{schedule-preferences.output}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "extract-booking-details",
+      "type": "llm",
+      "position": { "x": 1550, "y": 300 },
+      "data": {
+        "label": "Extract Booking Details",
+        "description": "Parse conversation and extract structured booking information",
+        "prompt": "Based on the following scheduling conversation, extract the test drive booking details:\n\nConversation: {{schedule-preferences.output}}\n\nExtract and return ONLY valid JSON:\n{\n  \"customerName\": \"string\",\n  \"customerPhone\": \"string\",\n  \"customerEmail\": \"string\",\n  \"vehicleModel\": \"string\",\n  \"preferredDate\": \"YYYY-MM-DD\",\n  \"preferredTime\": \"HH:MM\",\n  \"dealershipLocation\": \"string\",\n  \"additionalNotes\": \"string or null\"\n}",
+        "model": "gpt-4",
+        "temperature": 0.1
+      }
+    },
+    {
+      "id": "human-approval",
+      "type": "agent_with_hitl",
+      "position": { "x": 1800, "y": 300 },
+      "data": {
+        "label": "Sales Team Approval",
+        "description": "Sales team reviews and approves/modifies booking",
+        "agentConfig": {
+          "model": "gpt-4",
+          "provider": "openai",
+          "temperature": 0.3,
+          "systemPrompt": "Generate a summary for sales team approval",
+          "tools": []
+        },
+        "reviewMessage": "**Test Drive Booking Request**\n\nCustomer: {{extract-booking-details.output.customerName}}\nPhone: {{extract-booking-details.output.customerPhone}}\nEmail: {{extract-booking-details.output.customerEmail}}\n\nVehicle Interest:\n- Type: {{extract-preferences.output.vehicleType}}\n- Model: {{extract-booking-details.output.vehicleModel}}\n- Features: {{extract-preferences.output.features}}\n\nSchedule:\n- Date: {{extract-booking-details.output.preferredDate}}\n- Time: {{extract-booking-details.output.preferredTime}}\n- Location: {{extract-booking-details.output.dealershipLocation}}\n\nUrgency: {{extract-preferences.output.urgency}}\nNotes: {{extract-booking-details.output.additionalNotes}}\n\nPlease review and:\n- APPROVE: Confirm booking and send confirmation\n- REJECT: Cancel booking (e.g., no availability, invalid details)",
+        "actions": [
+          { "id": "approve", "label": "Approve Booking" },
+          { "id": "reject", "label": "Reject Booking" }
+        ],
+        "metadata": {
+          "interruptType": "langgraph_hitl",
+          "requiresApproval": true
+        }
+      }
+    },
+    {
+      "id": "create-booking",
+      "type": "tool",
+      "position": { "x": 2050, "y": 200 },
+      "data": {
+        "label": "Create Booking in CRM",
+        "description": "Create test drive appointment in CRM system",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://your-crm-api.com/bookings",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${CRM_API_KEY}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "customerName": "{{extract-booking-details.output.customerName}}",
+            "customerPhone": "{{extract-booking-details.output.customerPhone}}",
+            "customerEmail": "{{extract-booking-details.output.customerEmail}}",
+            "vehicleModel": "{{extract-booking-details.output.vehicleModel}}",
+            "appointmentDate": "{{extract-booking-details.output.preferredDate}}",
+            "appointmentTime": "{{extract-booking-details.output.preferredTime}}",
+            "location": "{{extract-booking-details.output.dealershipLocation}}",
+            "status": "confirmed",
+            "source": "voice_agent",
+            "notes": "{{extract-booking-details.output.additionalNotes}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "send-confirmation",
+      "type": "tool",
+      "position": { "x": 2300, "y": 200 },
+      "data": {
+        "label": "Send Confirmation",
+        "description": "Send SMS/Email confirmation to customer",
+        "toolName": "api_caller",
+        "parameters": {
+          "url": "https://your-notification-api.com/send",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer ${NOTIFICATION_API_KEY}",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "to": "{{extract-booking-details.output.customerEmail}}",
+            "phone": "{{extract-booking-details.output.customerPhone}}",
+            "type": "test_drive_confirmation",
+            "templateData": {
+              "customerName": "{{extract-booking-details.output.customerName}}",
+              "vehicleModel": "{{extract-booking-details.output.vehicleModel}}",
+              "appointmentDate": "{{extract-booking-details.output.preferredDate}}",
+              "appointmentTime": "{{extract-booking-details.output.preferredTime}}",
+              "location": "{{extract-booking-details.output.dealershipLocation}}",
+              "confirmationId": "{{create-booking.output.bookingId}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "confirmation-response",
+      "type": "llm",
+      "position": { "x": 2550, "y": 200 },
+      "data": {
+        "label": "Confirmation Voice Response",
+        "description": "Generate final confirmation message for voice agent",
+        "prompt": "Generate a brief, friendly voice confirmation message for the customer:\n\nBooking Details:\n- Customer: {{extract-booking-details.output.customerName}}\n- Vehicle: {{extract-booking-details.output.vehicleModel}}\n- Date: {{extract-booking-details.output.preferredDate}}\n- Time: {{extract-booking-details.output.preferredTime}}\n- Location: {{extract-booking-details.output.dealershipLocation}}\n- Confirmation ID: {{create-booking.output.bookingId}}\n\nWrite 2-3 sentences confirming the booking, mentioning they'll receive an email/SMS confirmation, and thanking them. Keep it natural for voice.",
+        "model": "gpt-4",
+        "temperature": 0.7
+      }
+    },
+    {
+      "id": "rejection-response",
+      "type": "llm",
+      "position": { "x": 2050, "y": 400 },
+      "data": {
+        "label": "Rejection Voice Response",
+        "description": "Generate polite rejection message",
+        "prompt": "The sales team was unable to confirm the test drive booking. Generate a polite, brief voice message (2 sentences) apologizing and asking the customer to call back or providing an alternative contact method.",
+        "model": "gpt-4",
+        "temperature": 0.7
+      }
+    },
+    {
+      "id": "end-success",
+      "type": "end",
+      "position": { "x": 2800, "y": 200 },
+      "data": {
+        "label": "Call Completed - Booked",
+        "description": "Test drive successfully booked",
+        "finalOutput": "{{confirmation-response.output}}"
+      }
+    },
+    {
+      "id": "end-rejected",
+      "type": "end",
+      "position": { "x": 2300, "y": 400 },
+      "data": {
+        "label": "Call Completed - Not Booked",
+        "description": "Booking not confirmed",
+        "finalOutput": "{{rejection-response.output}}"
+      }
+    },
+    {
+      "id": "end-no-vehicles",
+      "type": "end",
+      "position": { "x": 1300, "y": 500 },
+      "data": {
+        "label": "Call Completed - No Availability",
+        "description": "No matching vehicles available",
+        "finalOutput": "{{not-available-response.output}}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start-node",
+      "target": "speech-to-text",
+      "type": "default"
+    },
+    {
+      "id": "e1",
+      "source": "speech-to-text",
+      "target": "greeting-agent",
+      "type": "default"
+    },
+    {
+      "id": "e1b",
+      "source": "greeting-agent",
+      "target": "text-to-speech",
+      "type": "default"
+    },
+    {
+      "id": "e2",
+      "source": "text-to-speech",
+      "target": "extract-preferences",
+      "type": "default"
+    },
+    {
+      "id": "e3",
+      "source": "extract-preferences",
+      "target": "inventory-check",
+      "type": "default"
+    },
+    {
+      "id": "e4",
+      "source": "inventory-check",
+      "target": "availability-check",
+      "type": "default"
+    },
+    {
+      "id": "e5a",
+      "source": "availability-check",
+      "target": "stt-schedule",
+      "type": "conditional",
+      "condition": "approve",
+      "label": "Vehicles Available"
+    },
+    {
+      "id": "e5b",
+      "source": "stt-schedule",
+      "target": "schedule-preferences",
+      "type": "default"
+    },
+    {
+      "id": "e5c",
+      "source": "schedule-preferences",
+      "target": "tts-schedule",
+      "type": "default"
+    },
+    {
+      "id": "e6",
+      "source": "availability-check",
+      "target": "not-available-response",
+      "type": "conditional",
+      "condition": "reject",
+      "label": "No Vehicles"
+    },
+    {
+      "id": "e7",
+      "source": "not-available-response",
+      "target": "end-no-vehicles",
+      "type": "default"
+    },
+    {
+      "id": "e8",
+      "source": "tts-schedule",
+      "target": "extract-booking-details",
+      "type": "default"
+    },
+    {
+      "id": "e9",
+      "source": "extract-booking-details",
+      "target": "human-approval",
+      "type": "default"
+    },
+    {
+      "id": "e10",
+      "source": "human-approval",
+      "target": "create-booking",
+      "type": "conditional",
+      "condition": "approve",
+      "label": "Approved"
+    },
+    {
+      "id": "e11",
+      "source": "human-approval",
+      "target": "rejection-response",
+      "type": "conditional",
+      "condition": "reject",
+      "label": "Rejected"
+    },
+    {
+      "id": "e12",
+      "source": "create-booking",
+      "target": "send-confirmation",
+      "type": "default"
+    },
+    {
+      "id": "e13",
+      "source": "send-confirmation",
+      "target": "confirmation-response",
+      "type": "default"
+    },
+    {
+      "id": "e14",
+      "source": "confirmation-response",
+      "target": "end-success",
+      "type": "default"
+    },
+    {
+      "id": "e15",
+      "source": "rejection-response",
+      "target": "end-rejected",
+      "type": "default"
+    }
+  ],
+  "configuration": {
+    "maxExecutionTime": 600000,
+    "retryPolicy": {
+      "maxRetries": 2,
+      "retryDelay": 3000
+    },
+    "errorHandling": {
+      "onError": "notify_admin",
+      "fallbackNode": "end-rejected"
+    }
+  },
+  "triggers": [
+    {
+      "eventType": "incoming_call",
+      "enabled": true,
+      "priority": "high"
+    }
+  ]
+}

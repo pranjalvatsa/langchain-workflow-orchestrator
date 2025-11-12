@@ -1,12 +1,21 @@
 const express = require('express');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
+const LangGraphWorkflowService = require('../services/LangGraphWorkflowService');
 const { WorkflowService } = require('../services/WorkflowService');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 const workflowService = new WorkflowService();
-const workflowExecutionService = new WorkflowExecutionService(null); // Pass null for io since it's optional
+
+// Feature flag: Use LangGraph for new workflow executions
+const USE_LANGGRAPH = process.env.USE_LANGGRAPH === 'true';
+const workflowExecutionService = USE_LANGGRAPH 
+  ? new LangGraphWorkflowService(null) // LangGraph-based execution
+  : new WorkflowExecutionService(null);  // Legacy custom execution
+
+console.log(`🔧 Workflow Execution Engine: ${USE_LANGGRAPH ? 'LangGraph (Native)' : 'Legacy (Custom)'}`);
+
 
 // Apply authentication middleware to all execution routes
 router.use(authMiddleware);

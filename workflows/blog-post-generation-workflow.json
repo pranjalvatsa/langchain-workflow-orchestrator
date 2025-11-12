@@ -1,0 +1,420 @@
+{
+  "name": "Blog Post Generation Workflow",
+  "description": "Multi-step AI-powered blog post generation with keyword research, topic ideation, blueprint creation, and human approvals",
+  "version": "1.0.0",
+  "tags": ["content", "seo", "blog", "ai-writing", "multi-agent"],
+  "metadata": {
+    "author": "LangGraph Workflow Orchestrator",
+    "created": "2025-11-12",
+    "useCase": "Content Marketing",
+    "estimatedDuration": "15-30 minutes with human reviews"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "position": { "x": 200, "y": 100 },
+      "data": {
+        "label": "Start",
+        "description": "User enters blog topic",
+        "expectedInput": {
+          "topic": "string - The main topic for the blog post",
+          "targetAudience": "string (optional) - The intended audience",
+          "tone": "string (optional) - Writing tone (professional, casual, technical, etc.)"
+        }
+      }
+    },
+    {
+      "id": "keyword-research",
+      "type": "agent",
+      "position": { "x": 300, "y": 200 },
+      "data": {
+        "label": "Keyword Research Agent",
+        "description": "AI agent that performs keyword research using SERP API and LLM analysis"
+      },
+      "config": {
+        "agentType": "react",
+        "llm": {
+          "provider": "openai",
+          "model": "gpt-4",
+          "temperature": 0.7
+        },
+        "systemPrompt": "You are an SEO keyword research expert. Your job is to analyze the given topic and find relevant keywords that will help the blog post rank well in search engines. Use the search tool to research trending keywords, search volumes, and competition. Provide a comprehensive keyword strategy.",
+        "prompt": "Perform keyword research for the following blog topic:\n\nTopic: {{topic}}\nTarget Audience: {{targetAudience || 'General audience'}}\nTone: {{tone || 'Professional'}}\n\nTasks:\n1. Use the search tool to find:\n   - Primary keywords (high volume, relevant)\n   - Secondary keywords (supporting topics)\n   - Long-tail keywords (specific phrases)\n   - Related questions people ask\n2. Analyze search intent for each keyword\n3. Suggest keyword density and placement strategy\n4. Identify competitor content gaps\n\nProvide your findings in a structured format with:\n- Primary keyword (1)\n- Secondary keywords (3-5)\n- Long-tail keywords (5-10)\n- Related questions (5)\n- SEO recommendations",
+        "tools": [
+          {
+            "name": "search",
+            "type": "serp_api",
+            "description": "Search the web for keyword trends and related searches",
+            "config": {
+              "apiKey": "${SERP_API_KEY}",
+              "engine": "google",
+              "location": "United States"
+            }
+          }
+        ],
+        "maxIterations": 5,
+        "outputFormat": {
+          "primaryKeyword": "string",
+          "secondaryKeywords": ["string"],
+          "longTailKeywords": ["string"],
+          "relatedQuestions": ["string"],
+          "seoRecommendations": "string",
+          "competitorInsights": "string"
+        }
+      }
+    },
+    {
+      "id": "keyword-review",
+      "type": "humanReview",
+      "position": { "x": 400, "y": 200 },
+      "data": {
+        "label": "Keyword Review (Human Approval)",
+        "description": "Human reviews and approves/rejects the keyword research"
+      },
+      "config": {
+        "instructions": "Please review the keyword research results. Click 'Approve' to proceed with these keywords, or 'Reject' to redo the research with different parameters.",
+        "metadata": {
+          "requiresApproval": true,
+          "interruptType": "langgraph_hitl"
+        },
+        "reviewMessage": "Please review the keyword research results. Click 'Approve' to proceed with these keywords, or 'Reject' to redo the research with different parameters.",
+        "actions": [
+          {
+            "id": "approve",
+            "label": "Approve Keywords",
+            "description": "Keywords look good, proceed to topic generation",
+            "color": "success"
+          },
+          {
+            "id": "reject",
+            "label": "Reject & Redo",
+            "description": "Keywords need improvement, go back to research",
+            "color": "danger"
+          }
+        ],
+        "displayData": [
+          {
+            "label": "Primary Keyword",
+            "field": "primaryKeyword"
+          },
+          {
+            "label": "Secondary Keywords",
+            "field": "secondaryKeywords",
+            "type": "array"
+          },
+          {
+            "label": "Long-tail Keywords",
+            "field": "longTailKeywords",
+            "type": "array"
+          },
+          {
+            "label": "Related Questions",
+            "field": "relatedQuestions",
+            "type": "array"
+          },
+          {
+            "label": "SEO Recommendations",
+            "field": "seoRecommendations",
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "id": "topic-generation",
+      "type": "llm",
+      "position": { "x": 500, "y": 200 },
+      "data": {
+        "label": "Topic Generation Agent",
+        "description": "Generate compelling blog post topics based on approved keywords"
+      },
+      "config": {
+        "llm": {
+          "provider": "openai",
+          "model": "gpt-4",
+          "temperature": 0.8
+        },
+        "systemPrompt": "You are a creative content strategist who generates engaging blog post topics. Create topics that are SEO-friendly, attention-grabbing, and valuable to the target audience.",
+        "prompt": "Based on the approved keyword research, generate 5 compelling blog post topics.\n\nKeyword Research:\n- Primary Keyword: {{primaryKeyword}}\n- Secondary Keywords: {{secondaryKeywords}}\n- Long-tail Keywords: {{longTailKeywords}}\n- Related Questions: {{relatedQuestions}}\n\nOriginal Topic: {{topic}}\nTarget Audience: {{targetAudience || 'General audience'}}\nTone: {{tone || 'Professional'}}\n\nGenerate 5 blog post topics that:\n1. Incorporate the primary keyword naturally\n2. Address user intent from related questions\n3. Stand out from competitor content\n4. Promise clear value to readers\n5. Are optimized for click-through rates\n\nFor each topic, provide:\n- Title (60-70 characters)\n- Meta description (150-160 characters)\n- Target keyword focus\n- Why it will perform well\n\nFormat as JSON:\n{\n  \"topics\": [\n    {\n      \"title\": \"...\",\n      \"metaDescription\": \"...\",\n      \"targetKeyword\": \"...\",\n      \"rationale\": \"...\"\n    }\n  ],\n  \"recommendedTopic\": 0\n}",
+        "outputFormat": {
+          "topics": [
+            {
+              "title": "string",
+              "metaDescription": "string",
+              "targetKeyword": "string",
+              "rationale": "string"
+            }
+          ],
+          "recommendedTopic": "number"
+        }
+      }
+    },
+    {
+      "id": "blueprint-generation",
+      "type": "llm",
+      "position": { "x": 600, "y": 300 },
+      "data": {
+        "label": "Blueprint Generation Agent",
+        "description": "Create detailed blog post outline and structure"
+      },
+      "config": {
+        "llm": {
+          "provider": "openai",
+          "model": "gpt-4",
+          "temperature": 0.7
+        },
+        "systemPrompt": "You are an expert content architect. Create comprehensive blog post blueprints that guide writers to produce high-quality, SEO-optimized content.",
+        "prompt": "Create a detailed blueprint for the blog post.\n\nSelected Topic: {{topics[recommendedTopic].title}}\nMeta Description: {{topics[recommendedTopic].metaDescription}}\nPrimary Keyword: {{primaryKeyword}}\nSecondary Keywords: {{secondaryKeywords}}\nTarget Audience: {{targetAudience || 'General audience'}}\nTone: {{tone || 'Professional'}}\n\nCreate a comprehensive blueprint including:\n\n1. **Content Structure**\n   - Headline (with primary keyword)\n   - Introduction (hook, problem, promise)\n   - Main sections (H2 headings, 3-5 sections)\n   - Subsections (H3 headings where needed)\n   - Conclusion (summary, CTA)\n\n2. **SEO Strategy**\n   - Keyword placement plan\n   - Internal linking opportunities\n   - External linking requirements\n   - Image/media suggestions with alt text\n   - Featured snippet optimization\n\n3. **Content Guidelines**\n   - Target word count per section\n   - Key points to cover\n   - Data/statistics to include\n   - Examples or case studies needed\n   - Tone and voice notes\n\n4. **Engagement Elements**\n   - Questions to ask readers\n   - CTAs placement\n   - Shareable quotes or stats\n   - Interactive elements (if applicable)\n\nFormat as detailed JSON structure.",
+        "outputFormat": {
+          "headline": "string",
+          "introduction": {
+            "hook": "string",
+            "problemStatement": "string",
+            "promise": "string",
+            "wordCount": "number"
+          },
+          "sections": [
+            {
+              "heading": "string",
+              "subheadings": ["string"],
+              "keyPoints": ["string"],
+              "wordCount": "number",
+              "keywordFocus": "string"
+            }
+          ],
+          "conclusion": {
+            "summary": "string",
+            "cta": "string",
+            "wordCount": "number"
+          },
+          "seoStrategy": {
+            "keywordPlacements": ["string"],
+            "internalLinks": ["string"],
+            "externalLinks": ["string"],
+            "images": [
+              {
+                "description": "string",
+                "altText": "string",
+                "placement": "string"
+              }
+            ]
+          },
+          "totalWordCount": "number",
+          "estimatedReadTime": "string"
+        }
+      }
+    },
+    {
+      "id": "blueprint-review",
+      "type": "humanReview",
+      "position": { "x": 800, "y": 400 },
+      "data": {
+        "label": "Blueprint Review (Human Approval)",
+        "description": "Human reviews and approves/rejects the blog blueprint"
+      },
+      "config": {
+        "instructions": "Please review the blog post blueprint. Approve to proceed with content generation, or reject to revise the blueprint.",
+        "metadata": {
+          "requiresApproval": true,
+          "interruptType": "langgraph_hitl"
+        },
+        "reviewMessage": "Please review the blog post blueprint. Approve to proceed with content generation, or reject to revise the blueprint.",
+        "actions": [
+          {
+            "id": "approve",
+            "label": "Approve Blueprint",
+            "description": "Blueprint looks excellent, proceed to writing",
+            "color": "success"
+          },
+          {
+            "id": "reject",
+            "label": "Reject & Revise",
+            "description": "Blueprint needs changes, regenerate with feedback",
+            "color": "danger"
+          }
+        ],
+        "displayData": [
+          {
+            "label": "Headline",
+            "field": "headline",
+            "type": "text"
+          },
+          {
+            "label": "Introduction",
+            "field": "introduction",
+            "type": "object"
+          },
+          {
+            "label": "Content Sections",
+            "field": "sections",
+            "type": "array"
+          },
+          {
+            "label": "Total Word Count",
+            "field": "totalWordCount",
+            "type": "number"
+          },
+          {
+            "label": "Estimated Read Time",
+            "field": "estimatedReadTime",
+            "type": "text"
+          },
+          {
+            "label": "SEO Strategy",
+            "field": "seoStrategy",
+            "type": "object"
+          }
+        ]
+      }
+    },
+    {
+      "id": "blog-generation",
+      "type": "llm",
+      "position": { "x": 900, "y": 400 },
+      "data": {
+        "label": "Blog Generation Agent",
+        "description": "Write the complete blog post following the approved blueprint"
+      },
+      "config": {
+        "llm": {
+          "provider": "openai",
+          "model": "gpt-4",
+          "temperature": 0.7,
+          "maxTokens": 4000
+        },
+        "systemPrompt": "You are an expert content writer who creates engaging, SEO-optimized blog posts. Write naturally while following the blueprint precisely. Your writing should be informative, engaging, and valuable to readers.",
+        "prompt": "Write a complete blog post following this approved blueprint:\n\n{{JSON.stringify(blueprint, null, 2)}}\n\nKeyword Strategy:\n- Primary Keyword: {{primaryKeyword}}\n- Secondary Keywords: {{secondaryKeywords}}\n\nWriting Guidelines:\n1. Follow the blueprint structure exactly\n2. Incorporate keywords naturally (avoid keyword stuffing)\n3. Write in {{tone || 'professional'}} tone\n4. Target audience: {{targetAudience || 'general readers'}}\n5. Make it engaging with examples, data, and storytelling\n6. Include transition sentences between sections\n7. Write compelling intro and conclusion\n8. Add clear CTAs where specified\n\nIMPORTANT:\n- Meet the word count targets for each section\n- Use proper markdown formatting (H2 ##, H3 ###, bold, italic)\n- Write naturally - don't force keywords\n- Include specific, actionable advice\n- Fact-check all claims (note sources for verification)\n\nDeliver the complete blog post in markdown format.",
+        "outputFormat": {
+          "blogPost": "string (markdown)",
+          "wordCount": "number",
+          "keywordDensity": {
+            "primary": "number (percentage)",
+            "secondary": "object"
+          },
+          "readabilityScore": "string",
+          "seoScore": "string",
+          "metadata": {
+            "title": "string",
+            "metaDescription": "string",
+            "focusKeyword": "string",
+            "slug": "string"
+          }
+        }
+      }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "position": { "x": 1000, "y": 500 },
+      "data": {
+        "label": "Complete",
+        "description": "Blog post generation complete",
+        "finalOutput": {
+          "blogPost": "{{blogPost}}",
+          "wordCount": "{{wordCount}}",
+          "metadata": "{{metadata}}",
+          "keywordResearch": {
+            "primaryKeyword": "{{primaryKeyword}}",
+            "secondaryKeywords": "{{secondaryKeywords}}",
+            "longTailKeywords": "{{longTailKeywords}}"
+          },
+          "blueprint": "{{blueprint}}",
+          "seoScore": "{{seoScore}}",
+          "readabilityScore": "{{readabilityScore}}"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "start",
+      "target": "keyword-research",
+      "label": "Begin Research"
+    },
+    {
+      "id": "e2",
+      "source": "keyword-research",
+      "target": "keyword-review",
+      "label": "Review Keywords"
+    },
+    {
+      "id": "e3",
+      "source": "keyword-review",
+      "target": "topic-generation",
+      "type": "conditional",
+      "condition": {
+        "field": "action",
+        "operator": "equals",
+        "value": "approve"
+      },
+      "label": "Keywords Approved"
+    },
+    {
+      "id": "e4",
+      "source": "keyword-review",
+      "target": "keyword-research",
+      "type": "conditional",
+      "condition": {
+        "field": "action",
+        "operator": "equals",
+        "value": "reject"
+      },
+      "label": "Redo Research"
+    },
+    {
+      "id": "e5",
+      "source": "topic-generation",
+      "target": "blueprint-generation",
+      "label": "Generate Blueprint"
+    },
+    {
+      "id": "e6",
+      "source": "blueprint-generation",
+      "target": "blueprint-review",
+      "label": "Review Blueprint"
+    },
+    {
+      "id": "e7",
+      "source": "blueprint-review",
+      "target": "blog-generation",
+      "type": "conditional",
+      "condition": {
+        "field": "action",
+        "operator": "equals",
+        "value": "approve"
+      },
+      "label": "Blueprint Approved"
+    },
+    {
+      "id": "e8",
+      "source": "blueprint-review",
+      "target": "blueprint-generation",
+      "type": "conditional",
+      "condition": {
+        "field": "action",
+        "operator": "equals",
+        "value": "reject"
+      },
+      "label": "Revise Blueprint"
+    },
+    {
+      "id": "e9",
+      "source": "blog-generation",
+      "target": "end",
+      "label": "Complete"
+    }
+  ],
+  "config": {
+    "timeout": 1800000,
+    "retryPolicy": {
+      "maxRetries": 2,
+      "retryDelay": 5000
+    },
+    "errorHandling": {
+      "continueOnError": false,
+      "notifyOnError": true
+    }
+  }
+}

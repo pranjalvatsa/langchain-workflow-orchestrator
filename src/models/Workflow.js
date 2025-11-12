@@ -45,14 +45,12 @@ const workflowEdgeSchema = new mongoose.Schema(
     },
 
     // Conditional edge configuration
-    condition: {
+    condition: mongoose.Schema.Types.Mixed, // Can be string or object {field, operator, value}
+    conditionType: {
       type: String,
-      conditionType: {
-        type: String,
-        enum: ["always", "conditional", "success", "error"],
-      },
-      expression: String,
+      enum: ["always", "conditional", "success", "error"],
     },
+    expression: String,
 
     // Animation and styling
     animated: { type: Boolean, default: false },

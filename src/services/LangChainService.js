@@ -708,6 +708,9 @@ class LangChainService {
         case "human_review":
           return await this.executeHumanReviewNode(nodeConfig, context);
 
+        case "agent":
+          return await this.executeAgentNode(nodeConfig, context);
+
         case "agent_with_hitl":
           return await this.executeAgentWithHITLNode(nodeConfig, context);
 
@@ -728,6 +731,94 @@ class LangChainService {
       }
     } catch (error) {
       throw error;
+    }
+  }
+
+  /**
+   * Execute an agent node (without HITL)
+   * Agents can use tools to complete tasks autonomously
+   */
+  async executeAgentNode(nodeConfig, context = {}) {
+    try {
+      const { createReactAgent } = require("@langchain/langgraph/prebuilt");
+      const { HumanMessage } = require("@langchain/core/messages");
+      
+      // Get configuration
+      const config = nodeConfig.config || nodeConfig.data || {};
+      const prompt = config.prompt || config.systemPrompt || "Complete the task";
+      const maxIterations = config.maxIterations || 5;
+      
+      // Get tools - either from config or all registered tools
+      let tools = [];
+      if (config.tools && Array.isArray(config.tools)) {
+        // Load specific tools from config
+        for (const toolConfig of config.tools) {
+          const toolName = toolConfig.name || toolConfig.toolName;
+          if (toolName === 'search' || toolName === 'serp_api') {
+            // SERP API tool
+            const { SerpAPI } = require("@langchain/community/tools/serpapi");
+            const serpApiKey = process.env.SERP_API_KEY || toolConfig.config?.apiKey?.replace('${SERP_API_KEY}', process.env.SERP_API_KEY);
+            if (serpApiKey) {
+              tools.push(new SerpAPI(serpApiKey));
+            }
+          } else if (this.tools.has(toolName)) {
+            tools.push(this.tools.get(toolName));
+          }
+        }
+      } else {
+        // Use all registered tools
+        tools = Array.from(this.tools.values());
+      }
+      
+      // Get LLM model
+      const { ChatOpenAI } = require("@langchain/openai");
+      const llmConfig = config.llm || {};
+      const model = new ChatOpenAI({
+        modelName: llmConfig.model || "gpt-4",
+        temperature: llmConfig.temperature || 0.7,
+        openAIApiKey: process.env.OPENAI_API_KEY,
+      });
+      
+      // Create React agent
+      const agent = createReactAgent({
+        llm: model,
+        tools,
+      });
+
+      // Process template variables in prompt
+      const processedPrompt = this.processTemplate(prompt, context);
+      
+      // Execute agent
+      const messages = [new HumanMessage(processedPrompt)];
+      const result = await agent.invoke({ messages });
+
+      // Extract output
+      const lastMessage = result.messages[result.messages.length - 1];
+      const output = lastMessage.content;
+      
+      // Try to parse structured output if specified
+      let parsedOutput = output;
+      if (config.outputFormat) {
+        try {
+          // Check if output is JSON
+          if (typeof output === 'string' && output.trim().startsWith('{')) {
+            parsedOutput = JSON.parse(output);
+          }
+        } catch (e) {
+          // Keep as string if not valid JSON
+          parsedOutput = output;
+        }
+      }
+
+      return { 
+        success: true, 
+        output: parsedOutput,
+        rawOutput: output,
+        messageCount: result.messages.length
+      };
+    } catch (error) {
+      console.error("Error in executeAgentNode:", error);
+      throw new Error(`Agent execution failed: ${error.message}`);
     }
   }
 
@@ -1288,6 +1379,23 @@ class LangChainService {
     };
 
     return result;
+  }
+
+  /**
+   * Process template variables in a string
+   * Replaces {{variableName}} with values from context
+   */
+  processTemplate(template, context) {
+    if (typeof template !== 'string') return template;
+    
+    return template.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+      const keys = path.trim().split('.');
+      let value = context;
+      for (const key of keys) {
+        value = value?.[key];
+      }
+      return value !== undefined ? value : match;
+    });
   }
 }
 

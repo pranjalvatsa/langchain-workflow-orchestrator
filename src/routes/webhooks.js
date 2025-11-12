@@ -1,10 +1,17 @@
 const express = require('express');
 const { asyncHandler } = require('../middleware/errorHandler');
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
+const LangGraphWorkflowService = require('../services/LangGraphWorkflowService');
 const { WorkflowService } = require('../services/WorkflowService');
 
 const router = express.Router();
-const workflowExecutionService = new WorkflowExecutionService();
+
+// Feature flag: Use LangGraph for workflow execution
+const USE_LANGGRAPH = process.env.USE_LANGGRAPH === 'true';
+const workflowExecutionService = USE_LANGGRAPH
+  ? new LangGraphWorkflowService()
+  : new WorkflowExecutionService();
+
 const workflowService = new WorkflowService();
 
 /**

@@ -404,6 +404,7 @@ module.exports = {
   Workflow: require("./Workflow"),
   WorkflowExecution: require("./WorkflowExecution"),
   WorkflowStepLog: require("./WorkflowStepLog"),
+  Task: require("./Task"),
   User: require("./User"),
   ApiKey: mongoose.model("ApiKey", apiKeySchema),
   AuditLog: mongoose.model("AuditLog", auditLogSchema),

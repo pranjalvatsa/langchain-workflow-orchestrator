@@ -1,5 +1,6 @@
 const { Workflow, WorkflowTemplate } = require("../models");
 const LangChainService = require("./LangChainService");
+const LangGraphWorkflowService = require("./LangGraphWorkflowService");
 const winston = require("winston");
 /**
  * Get human review nodes and their data for a workflow
@@ -66,11 +67,16 @@ class WorkflowService {
   }
   constructor() {
     this.langChainService = new LangChainService();
+    this.langGraphService = new LangGraphWorkflowService();
+    this.useLangGraph = process.env.USE_LANGGRAPH === 'true';
     this.logger = winston.createLogger({
       level: "info",
       format: winston.format.json(),
       transports: [new winston.transports.Console(), new winston.transports.File({ filename: "logs/workflow.log" })],
     });
+    
+    // Log which validation service is active
+    console.log('🔍 WorkflowService initialized: Using LangGraph validation (legacy LangChain validation disabled)');
   }
 
   async createWorkflow(workflowData, userId) {
@@ -273,7 +279,8 @@ class WorkflowService {
 
   async validateWorkflow(workflow) {
     try {
-      return await this.langChainService.validateWorkflow(workflow);
+      // ALWAYS use LangGraph validation (legacy service disabled)
+      return await this.langGraphService.validateWorkflow(workflow);
     } catch (error) {
       this.logger.error("Error validating workflow:", error);
       return {

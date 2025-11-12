@@ -1,9 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const WorkflowExecutionService = require('../services/WorkflowExecutionService');
+const LangGraphWorkflowService = require('../services/LangGraphWorkflowService');
 const LangChainService = require('../services/LangChainService');
 const Task = require('../models/Task');
 const { WorkflowExecution, Workflow } = require('../models');
+
+// Feature flag: Use LangGraph for workflow execution
+const USE_LANGGRAPH = process.env.USE_LANGGRAPH === 'true';
 
 /**
  * GET /api/human-review/tasks
@@ -63,40 +67,69 @@ router.post('/complete', async (req, res) => {
     const isLangGraphHITL = task.metadata?.interruptType === 'langgraph_hitl';
     
     if (isLangGraphHITL) {
-      console.log('[HITL] Resuming LangGraph agent after approval');
+      console.log('[HITL] Resuming workflow after approval');
       
-      // Get the node from workflow to re-execute with resume flag
-      const Workflow = require('../models/Workflow');
-      const workflow = await Workflow.findById(task.workflowId);
-      const node = workflow.nodes.find(n => n.id === task.nodeId);
-      
-      if (!node) {
-        return res.status(404).json({ success: false, error: 'Node not found in workflow' });
-      }
-      
-      // Re-execute the HITL node with _isResumeFromHITL flag
-      const LangChainService = require('../services/LangChainService');
-      const langChainService = new LangChainService();
-      
-      try {
-        // Prepare context with resume flag and human approval
-        const resumeContext = {
-          ...task.data,
-          _isResumeFromHITL: true,
-          threadId: task.metadata.threadId,
-          humanApproval: {
-            decision: actionId,
-            feedback,
-            approvedAt: new Date(),
-          }
-        };
+      if (USE_LANGGRAPH) {
+        // LangGraph native HITL resume
+        console.log('[HITL] Using LangGraph native resume');
         
-        console.log('[HITL] Executing agent with resume context, threadId:', task.metadata.threadId);
+        const langGraphService = new LangGraphWorkflowService(null);
         
-        // Execute the agent node with resume flag - it will continue from the checkpoint
-        const result = await langChainService.executeAgentWithHITLNode(node, resumeContext);
+        // Resume workflow with approval data
+        // resumeWorkflow will rebuild from database if not in memory
+        const result = await langGraphService.resumeWorkflow(task.executionId, {
+          actionId,
+          feedback
+        });
         
-        console.log('[HITL] Agent execution completed:', result);
+        console.log('[HITL] LangGraph resume completed:', result);
+        
+        // Update task
+        task.status = 'completed';
+        task.completedAt = new Date();
+        task.result = { decision: actionId, feedback, output: result };
+        await task.save();
+        
+        return res.json({
+          success: true,
+          message: 'Human review completed, workflow resumed',
+          data: { task, result }
+        });
+        
+      } else {
+        // Legacy HITL resume for backward compatibility
+        console.log('[HITL] Using legacy LangGraph agent resume');
+        
+        // Get the node from workflow to re-execute with resume flag
+        const workflow = await Workflow.findById(task.workflowId);
+        const node = workflow.nodes.find(n => n.id === task.nodeId);
+        
+        if (!node) {
+          return res.status(404).json({ success: false, error: 'Node not found in workflow' });
+        }
+        
+        // Re-execute the HITL node with _isResumeFromHITL flag
+        const langChainService = new LangChainService();
+        
+        try {
+          // Prepare context with resume flag and human approval
+          const resumeContext = {
+            ...task.data,
+            _isResumeFromHITL: true,
+            threadId: task.metadata.threadId,
+            humanApproval: {
+              decision: actionId,
+              feedback,
+              approvedAt: new Date(),
+            }
+          };
+          
+          console.log('[HITL] Executing agent with resume context, threadId:', task.metadata.threadId);
+          
+          // Execute the agent node with resume flag - it will continue from the checkpoint
+          const result = await langChainService.executeAgentWithHITLNode(node, resumeContext);
+          
+          console.log('[HITL] Agent execution completed:', result);
         
         // Update WorkflowStepLog from waiting_human_review to completed
         const WorkflowStepLog = require('../models/WorkflowStepLog');
@@ -207,12 +240,13 @@ router.post('/complete', async (req, res) => {
           output: result.output || result,
           nextNodes: nextNodes.map(n => n.id),
         });
-      } catch (error) {
-        console.error('[HITL] Error resuming agent:', error);
-        res.status(500).json({
-          success: false,
-          error: `Failed to resume agent: ${error.message}`
-        });
+        } catch (error) {
+          console.error('[HITL] Error resuming agent:', error);
+          res.status(500).json({
+            success: false,
+            error: `Failed to resume agent: ${error.message}`
+          });
+        }
       }
       
     } else {

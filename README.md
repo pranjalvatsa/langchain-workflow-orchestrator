@@ -1,6 +1,8 @@
 # LangChain Workflow Orchestrator - Universal Workflow Engine
 
-A **scalable, universal workflow orchestration platform** using LangChain that can execute **ANY workflow without code changes**. Features a Universal Workflow Engine that eliminates the need for workflow-specific endpoints.
+A **scalable, universal workflow orchestration platform** using **LangGraph** that can execute **ANY workflow without code changes**. Features a Universal Workflow Engine that eliminates the need for workflow-specific endpoints.
+
+> **🎉 NEW**: Now powered by **LangGraph's StateGraph** for native graph execution, streaming, parallel nodes, and persistent checkpointing. See [Migration Guide](./LANGGRAPH_MIGRATION_GUIDE.md) for details.
 
 ## 🌟 **Universal Workflow Engine - Key Innovation**
 
@@ -25,6 +27,7 @@ POST /api/universal/workflows/trigger
 - ✅ **Tool Library**: 14+ universal tools available to all workflows
 - ✅ **Noam App Integration**: Visual editing with reverse engineering
 - ✅ **Template Database**: Persistent workflow templates with versioning
+- ✅ **LangGraph Native**: Built on LangGraph StateGraph for production-ready orchestration
 
 ## 🚀 Overview
 
@@ -37,17 +40,20 @@ This platform provides a complete **Universal Workflow Engine** that enables:
 - **🎨 Visual Integration**: Noam app compatibility with ReactFlow canvas
 - **⏰ Scheduling**: Universal scheduling for any workflow
 - **🔗 Event Triggers**: Universal webhook system for any event type
+- **⚡ LangGraph Power**: Streaming execution, parallel nodes, persistent HITL checkpoints
 
 ### **Pre-Built Workflow Templates**
 1. **📞 Call Deflection** - Customer service automation with AI + human escalation  
 2. **📊 Business Insights** - Analytics, reporting, and multi-channel publishing
 3. **👋 Customer Onboarding** - Automated welcome sequences and setup
+4. **🚗 Test Drive Booking** - Voice agent for automotive dealership bookings
 
 ### **Technical Stack**
-- **AI Integration**: OpenAI GPT models and LangChain framework
+- **AI Integration**: OpenAI GPT models, LangChain framework, **LangGraph orchestration**
 - **Real-time**: WebSocket-based live monitoring and execution  
 - **Authentication**: JWT-based user management
 - **Database**: MongoDB with template storage and versioning
+- **Checkpointing**: Persistent workflow state with MemorySaver/PostgresSaver
 - **Production Ready**: Logging, monitoring, error handling, deployment configs
 
 ## 🏗️ Architecture
