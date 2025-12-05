@@ -650,6 +650,103 @@ class LangChainService {
         },
       })
     );
+
+    // Firecrawl Web Scraping Tool
+    this.tools.set(
+      "firecrawl_scraper",
+      new DynamicTool({
+        name: "firecrawl_scraper",
+        description: "Scrape and crawl websites using Firecrawl API. Supports single page scraping and multi-page crawling with robots.txt compliance.",
+        func: async (input) => {
+          try {
+            const FirecrawlApp = require('@mendable/firecrawl-js').default;
+            const firecrawl = new FirecrawlApp({
+              apiKey: process.env.FIRECRAWL_API_KEY
+            });
+
+            const {
+              url,
+              mode = 'scrape', // 'scrape' or 'crawl'
+              max_pages = 100,
+              include_paths = [],
+              exclude_paths = [],
+              extract_schema = null,
+              formats = ['markdown', 'html']
+            } = JSON.parse(input);
+
+            if (!process.env.FIRECRAWL_API_KEY) {
+              return JSON.stringify({
+                success: false,
+                error: "FIRECRAWL_API_KEY not configured in environment variables",
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            if (mode === 'scrape') {
+              // Single page scraping
+              const result = await firecrawl.scrapeUrl(url, {
+                formats: formats,
+                onlyMainContent: true,
+                includeTags: ['article', 'main', 'section', '.client', '.customer', '.partner', '.testimonial'],
+                excludeTags: ['nav', 'footer', 'script', 'style'],
+              });
+
+              return JSON.stringify({
+                success: true,
+                mode: 'scrape',
+                url: url,
+                data: result,
+                timestamp: new Date().toISOString(),
+              });
+
+            } else if (mode === 'crawl') {
+              // Multi-page crawling
+              const crawlOptions = {
+                limit: max_pages,
+                scrapeOptions: {
+                  formats: formats,
+                  onlyMainContent: true,
+                  includeTags: ['article', 'main', 'section', '.client', '.customer', '.partner', '.testimonial'],
+                  excludeTags: ['nav', 'footer', 'script', 'style'],
+                }
+              };
+
+              if (include_paths.length > 0) {
+                crawlOptions.includePaths = include_paths;
+              }
+              if (exclude_paths.length > 0) {
+                crawlOptions.excludePaths = exclude_paths;
+              }
+
+              const result = await firecrawl.crawlUrl(url, crawlOptions);
+
+              return JSON.stringify({
+                success: true,
+                mode: 'crawl',
+                url: url,
+                pages_crawled: result.data ? result.data.length : 0,
+                data: result,
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            return JSON.stringify({
+              success: false,
+              error: "Invalid mode. Use 'scrape' or 'crawl'",
+              timestamp: new Date().toISOString(),
+            });
+
+          } catch (error) {
+            return JSON.stringify({
+              success: false,
+              error: error.message,
+              stack: error.stack,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        },
+      })
+    );
   }
 
   calculateNextRun(schedule) {

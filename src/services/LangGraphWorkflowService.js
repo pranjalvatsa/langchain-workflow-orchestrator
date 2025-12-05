@@ -948,6 +948,10 @@ class LangGraphWorkflowService {
             
             // If we found a truthy value, return it
             if (value !== undefined && value !== null && value !== '') {
+              // Stringify objects and arrays
+              if (typeof value === 'object') {
+                return JSON.stringify(value, null, 2);
+              }
               return String(value);
             }
           }
@@ -962,7 +966,14 @@ class LangGraphWorkflowService {
         for (const key of keys) {
           value = value?.[key];
         }
-        return value !== undefined ? String(value) : match;
+        // Stringify objects and arrays, otherwise use String()
+        if (value !== undefined) {
+          if (typeof value === 'object' && value !== null) {
+            return JSON.stringify(value, null, 2);
+          }
+          return String(value);
+        }
+        return match;
       });
     } else if (Array.isArray(template)) {
       // Process arrays recursively
@@ -1048,16 +1059,68 @@ class LangGraphWorkflowService {
       const { HumanMessage } = require("@langchain/core/messages");
       
       const config = node.config || {};
-      const prompt = this.processTemplate(config.prompt || "", context);
+      let prompt = this.processTemplate(config.prompt || "", context);
       const systemPrompt = this.processTemplate(config.systemPrompt || "", context);
       
-      // Get LLM
+      // Check prompt size and truncate if necessary
+      const estimatedTokens = Math.ceil(prompt.length / 4); // Rough estimate: 1 token ≈ 4 chars
+      
+      // Get LLM config
       const llmConfig = config.llm || {};
+      
+      // Choose model based on token count
+      // Current recommended models:
+      // - gpt-4o-mini: 128k context, $0.15/$0.60 per 1M tokens (best value)
+      // - gpt-4o: 128k context, $2.50/$10 per 1M tokens (flagship)
+      // - gpt-4-turbo: 128k context, $10/$30 per 1M tokens (legacy, expensive)
+      let selectedModel = llmConfig.model;
+      
+      if (!selectedModel) {
+        // Auto-select based on estimated complexity
+        if (estimatedTokens > 6000) {
+          selectedModel = "gpt-4o-mini"; // 128k context, very affordable
+        } else {
+          selectedModel = "gpt-4o-mini"; // Use gpt-4o-mini by default for cost efficiency
+        }
+      }
+      
+      // Determine max tokens based on model
+      const modelLimits = {
+        "gpt-4o": 128000,
+        "gpt-4o-mini": 128000,
+        "gpt-4-turbo": 128000,
+        "gpt-4": 8000,  // Legacy
+        "gpt-3.5-turbo": 16000
+      };
+      
+      const modelLimit = modelLimits[selectedModel] || 128000;
+      const maxInputTokens = Math.floor(modelLimit * 0.75); // Leave 25% for response + overhead
+      
+      // Truncate if exceeds model limit
+      if (estimatedTokens > maxInputTokens) {
+        workflowLogger.log("Prompt too large, truncating", { 
+          estimatedTokens, 
+          maxInputTokens,
+          selectedModel,
+          nodeId: node.id 
+        });
+        
+        const maxChars = maxInputTokens * 4;
+        prompt = prompt.substring(0, maxChars) + "\n\n[... content truncated due to size ...]";
+      }
+      
       const model = new ChatOpenAI({
-        modelName: llmConfig.model || "gpt-4",
+        modelName: selectedModel,
         temperature: llmConfig.temperature || 0.7,
-        maxTokens: llmConfig.maxTokens || 2000,
+        maxTokens: llmConfig.maxTokens || 4000,
         openAIApiKey: process.env.OPENAI_API_KEY,
+      });
+      
+      workflowLogger.log("Executing LLM", { 
+        model: selectedModel,
+        estimatedTokens,
+        modelLimit,
+        nodeId: node.id 
       });
       
       // Build messages
@@ -1100,15 +1163,94 @@ class LangGraphWorkflowService {
         throw new Error("Tool name not specified");
       }
       
-      // For now, just return a placeholder
-      // You can add actual tool execution logic here
+      // Get the LangChain service to execute the tool
+      const LangChainService = require('./LangChainService');
+      const langChainService = new LangChainService();
+      
+      // Get the tool from LangChain service
+      const tool = langChainService.tools.get(toolName);
+      
+      if (!tool) {
+        throw new Error(`Tool ${toolName} not found. Available tools: ${Array.from(langChainService.tools.keys()).join(', ')}`);
+      }
+      
+      // Prepare parameters by processing templates with context
+      const parameters = config.parameters || {};
+      const processedParams = {};
+      
+      for (const [key, value] of Object.entries(parameters)) {
+        if (typeof value === 'string') {
+          const processed = this.processTemplate(value, context);
+          // Convert numeric strings to numbers
+          if (!isNaN(processed) && processed.trim() !== '') {
+            processedParams[key] = Number(processed);
+          } else {
+            processedParams[key] = processed;
+          }
+        } else {
+          processedParams[key] = value;
+        }
+      }
+      
+      workflowLogger.log("Executing tool", { 
+        toolName, 
+        parameters: processedParams,
+        nodeId: node.id 
+      });
+      
+      // Execute the tool
+      const toolInput = JSON.stringify(processedParams);
+      const toolResult = await tool.call(toolInput);
+      
+      // Parse result if it's JSON
+      let parsedResult;
+      try {
+        parsedResult = JSON.parse(toolResult);
+      } catch (e) {
+        parsedResult = { raw: toolResult };
+      }
+      
+      // For firecrawl_scraper, extract compact data to reduce token usage
+      if (toolName === 'firecrawl_scraper' && parsedResult.data && Array.isArray(parsedResult.data)) {
+        workflowLogger.log("Compacting Firecrawl data", { 
+          originalPages: parsedResult.data.length,
+          nodeId: node.id 
+        });
+        
+        // Extract only essential fields and truncate content
+        parsedResult.data = parsedResult.data.map(page => ({
+          url: page.url,
+          title: page.title || page.metadata?.title,
+          // Take first 2000 chars of markdown content (roughly 500 tokens)
+          content: (page.markdown || page.content || '').substring(0, 2000),
+          excerpt: page.excerpt || page.description || page.metadata?.description
+        }));
+        
+        workflowLogger.log("Firecrawl data compacted", { 
+          pages: parsedResult.data.length,
+          estimatedTokens: Math.ceil(JSON.stringify(parsedResult.data).length / 4),
+          nodeId: node.id 
+        });
+      }
+      
+      workflowLogger.log("Tool execution completed", { 
+        toolName, 
+        success: parsedResult.success !== false,
+        nodeId: node.id 
+      });
+      
       return { 
-        success: true, 
-        output: `Tool ${toolName} executed`,
-        toolName 
+        success: parsedResult.success !== false,
+        output: parsedResult,
+        toolName,
+        rawOutput: toolResult
       };
     } catch (error) {
-      workflowLogger.error("Tool node execution failed", { error: error.message });
+      workflowLogger.error("Tool node execution failed", { 
+        error: error.message,
+        stack: error.stack,
+        nodeId: node.id 
+      });
       throw error;
     }
   }

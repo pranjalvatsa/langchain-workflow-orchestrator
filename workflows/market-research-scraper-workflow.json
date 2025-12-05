@@ -1,0 +1,434 @@
+{
+  "name": "Market Research & Data-Scraping Agent",
+  "description": "Crawls target websites to extract brand mentions from clients, partners, case studies, testimonials, and blog posts with respect to robots.txt and rate limits",
+  "version": "1.0.0",
+  "templateId": "market-research-scraper-v1",
+  "category": "data-extraction",
+  "tags": ["web-scraping", "market-research", "brand-extraction", "data-mining"],
+  "author": "LangChain Workflow Orchestrator",
+  "metadata": {
+    "use_cases": ["competitive-intelligence", "lead-generation", "market-analysis"],
+    "estimated_duration": "30-60 minutes",
+    "requires_approval": true
+  },
+  "inputs": {
+    "target_url": {
+      "type": "string",
+      "required": true,
+      "description": "Target website domain or landing URL (e.g., https://www.example.com)"
+    },
+    "max_pages": {
+      "type": "number",
+      "default": 1000,
+      "description": "Maximum number of pages to crawl"
+    },
+    "crawl_depth": {
+      "type": "number",
+      "default": 4,
+      "description": "Maximum crawl depth from starting URL"
+    },
+    "rate_limit_rps": {
+      "type": "number",
+      "default": 1,
+      "description": "Rate limit in requests per second"
+    },
+    "sitemap_only": {
+      "type": "boolean",
+      "default": false,
+      "description": "Only crawl URLs from sitemap.xml"
+    },
+    "include_subdomains": {
+      "type": "boolean",
+      "default": false,
+      "description": "Include subdomains in crawl"
+    },
+    "gated_credentials": {
+      "type": "object",
+      "required": false,
+      "description": "Optional credentials for gated content {username, password}"
+    },
+    "fuzzy_match_threshold": {
+      "type": "number",
+      "default": 0.9,
+      "description": "Fuzzy matching threshold for brand deduplication (0-1)"
+    }
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "name": "Start Workflow",
+      "description": "Initialize market research scraping workflow"
+    },
+    {
+      "id": "validate_input",
+      "type": "llm_task",
+      "name": "Validate Input Parameters",
+      "description": "Validate and normalize the target URL and parameters",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0,
+        "prompt": "You are a URL validation assistant. Validate the following inputs:\n\nTarget URL: {{target_url}}\nMax Pages: {{max_pages}}\nCrawl Depth: {{crawl_depth}}\nRate Limit: {{rate_limit_rps}} req/sec\nSitemap Only: {{sitemap_only}}\nInclude Subdomains: {{include_subdomains}}\n\nTasks:\n1. Validate URL format (must be valid http/https)\n2. Normalize URL (remove trailing slashes, ensure protocol)\n3. Check if parameters are within reasonable limits (max_pages < 10000, crawl_depth < 10, rate_limit < 10)\n4. Return JSON: {\"valid\": true/false, \"normalized_url\": \"\", \"errors\": [], \"warnings\": []}",
+        "output_key": "validation_result"
+      }
+    },
+    {
+      "id": "check_validation",
+      "type": "conditional",
+      "name": "Check Validation Result",
+      "description": "Branch based on validation success",
+      "config": {
+        "condition": "{{validation_result.valid}} === true",
+        "true_path": "fetch_robots_txt",
+        "false_path": "validation_failed"
+      }
+    },
+    {
+      "id": "validation_failed",
+      "type": "end",
+      "name": "Validation Failed",
+      "description": "End workflow due to validation failure",
+      "config": {
+        "output": {
+          "success": false,
+          "error": "Input validation failed",
+          "details": "{{validation_result.errors}}"
+        }
+      }
+    },
+    {
+      "id": "fetch_robots_txt",
+      "type": "api_caller",
+      "name": "Fetch robots.txt",
+      "description": "Retrieve and parse robots.txt to check crawl permissions",
+      "config": {
+        "method": "GET",
+        "url": "{{validation_result.normalized_url}}/robots.txt",
+        "timeout": 10000,
+        "handle_errors": true,
+        "output_key": "robots_txt_content"
+      }
+    },
+    {
+      "id": "parse_robots_txt",
+      "type": "llm_task",
+      "name": "Parse robots.txt Rules",
+      "description": "Extract crawl-delay, disallow rules, and sitemap URLs",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0,
+        "prompt": "You are a robots.txt parser. Analyze the following robots.txt content:\n\n```\n{{robots_txt_content}}\n```\n\nExtract:\n1. User-agent rules applicable to all crawlers or specifically for '*'\n2. Disallow paths (list all)\n3. Crawl-delay value (if specified)\n4. Sitemap URLs (if specified)\n5. Allow paths (if specified)\n\nDetermine if crawling is permitted for common sections: /clients, /customers, /partners, /case-studies, /testimonials, /blog\n\nReturn JSON:\n{\n  \"crawl_allowed\": true/false,\n  \"disallowed_paths\": [],\n  \"allowed_paths\": [],\n  \"crawl_delay_seconds\": number,\n  \"sitemap_urls\": [],\n  \"permitted_sections\": {\"/clients\": true/false, ...},\n  \"notes\": \"explanation\"\n}",
+        "output_key": "robots_rules"
+      }
+    },
+    {
+      "id": "check_crawl_permission",
+      "type": "conditional",
+      "name": "Check Crawl Permission",
+      "description": "Verify if crawling is allowed",
+      "config": {
+        "condition": "{{robots_rules.crawl_allowed}} === true",
+        "true_path": "fetch_sitemap",
+        "false_path": "crawl_disallowed"
+      }
+    },
+    {
+      "id": "crawl_disallowed",
+      "type": "end",
+      "name": "Crawling Disallowed",
+      "description": "End workflow - robots.txt disallows crawling",
+      "config": {
+        "output": {
+          "success": false,
+          "error": "Crawling disallowed by robots.txt",
+          "details": "{{robots_rules.notes}}",
+          "disallowed_paths": "{{robots_rules.disallowed_paths}}"
+        }
+      }
+    },
+    {
+      "id": "fetch_sitemap",
+      "type": "api_caller",
+      "name": "Fetch Sitemap",
+      "description": "Retrieve sitemap.xml to discover URLs",
+      "config": {
+        "method": "GET",
+        "url": "{{validation_result.normalized_url}}/sitemap.xml",
+        "timeout": 15000,
+        "handle_errors": true,
+        "fallback_urls": "{{robots_rules.sitemap_urls}}",
+        "output_key": "sitemap_content"
+      }
+    },
+    {
+      "id": "parse_sitemap",
+      "type": "llm_task",
+      "name": "Parse Sitemap URLs",
+      "description": "Extract all URLs from sitemap",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0,
+        "prompt": "Parse this sitemap XML and extract all URLs:\n\n{{sitemap_content}}\n\nFilter URLs to prioritize:\n- Paths containing: clients, customers, partners, case-studies, testimonials, blog, about, portfolio\n- Exclude: admin, login, wp-admin, privacy, terms, cookie\n\nReturn JSON:\n{\n  \"priority_urls\": [list of high-priority URLs],\n  \"standard_urls\": [other URLs],\n  \"total_count\": number,\n  \"has_nested_sitemaps\": true/false,\n  \"nested_sitemap_urls\": []\n}",
+        "output_key": "sitemap_urls"
+      }
+    },
+    {
+      "id": "execute_crawl",
+      "type": "tool",
+      "name": "Execute Web Crawl with Firecrawl",
+      "description": "Crawl website using Firecrawl API and extract content",
+      "config": {
+        "toolName": "firecrawl_scraper",
+        "parameters": {
+          "url": "{{validation_result.normalized_url}}",
+          "mode": "crawl",
+          "max_pages": "{{max_pages}}",
+          "formats": ["markdown", "html"],
+          "include_paths": ["/clients", "/customers", "/partners", "/case-studies", "/testimonials", "/blog", "/about"],
+          "exclude_paths": ["/admin", "/login", "/cart", "/checkout", "/privacy", "/terms"]
+        },
+        "output_key": "firecrawl_results"
+      }
+    },
+    {
+      "id": "extract_brands",
+      "type": "llm_task",
+      "name": "Extract Brand Mentions from Crawled Content",
+      "description": "Analyze crawled pages and extract brand mentions with context",
+      "config": {
+        "model": "gpt-4-turbo",
+        "temperature": 0,
+        "max_tokens": 4000,
+        "prompt": "You are a brand extraction expert. Analyze the following crawled website content and extract ALL brand/company mentions:\n\nCrawled Data: {{firecrawl_results.data}}\nTotal Pages: {{firecrawl_results.pages_crawled}}\n\nFor EACH brand mention found, create an entry with:\n- brand_name: string (normalized - Title Case, trim whitespace)\n- source_url: string (page URL where found)\n- page_title: string (page title)\n- context_snippet: string (30-50 words around the mention)\n- page_type: enum (case-study/blog/testimonial/clients/partners/about/other)\n- confidence_score: float 0-1 (1.0 for logo sections, 0.9 case studies, 0.7 blog)\n- language: string (ISO code)\n- extracted_on: ISO timestamp\n\nEXTRACTION RULES:\n1. Look in: client logos, case study titles, testimonial attributions, partner sections, blog mentions, about page\n2. Normalize: trim whitespace, Title Case, remove trailing periods\n3. Context: capture surrounding paragraph\n4. Confidence: logo/client page=1.0, case study=0.9, testimonial=0.8, blog=0.7\n5. Ignore: navigation, footer links, generic terms (\"customer\", \"partner\" without names)\n\nReturn JSON:\n{\n  \"crawl_summary\": {\n    \"pages_analyzed\": number,\n    \"total_brands_found\": number,\n    \"processing_time_seconds\": number\n  },\n  \"brand_mentions\": [\n    {\n      \"brand_name\": \"\",\n      \"source_url\": \"\",\n      \"page_title\": \"\",\n      \"context_snippet\": \"\",\n      \"page_type\": \"\",\n      \"confidence_score\": 0.0,\n      \"language\": \"en\",\n      \"extracted_on\": \"\"\n    }\n  ]\n}",
+        "output_key": "crawl_results"
+      }
+    },
+    {
+      "id": "deduplicate_brands",
+      "type": "llm_task",
+      "name": "Deduplicate Brand Names",
+      "description": "Use fuzzy matching to identify and merge duplicate brand mentions",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0,
+        "prompt": "You are a brand deduplication expert. Analyze these brand mentions and identify duplicates using fuzzy matching:\n\nBrand Mentions:\n{{crawl_results.brand_mentions}}\n\nFuzzy Match Threshold: {{fuzzy_match_threshold}} (90% by default)\n\nTasks:\n1. Group similar brand names (e.g., \"Acme Inc.\", \"ACME\", \"Acme Corporation\")\n2. Select canonical name (most common or most complete version)\n3. List variants as aliases\n4. Merge context snippets and source URLs\n5. Keep highest confidence score\n6. Aggregate all source pages\n\nReturn JSON:\n{\n  \"deduplicated_brands\": [\n    {\n      \"canonical_name\": \"\",\n      \"aliases\": [],\n      \"total_mentions\": number,\n      \"source_urls\": [],\n      \"page_types\": [],\n      \"best_context_snippet\": \"\",\n      \"confidence_score\": number,\n      \"first_seen\": \"\",\n      \"languages\": []\n    }\n  ],\n  \"deduplication_stats\": {\n    \"original_count\": number,\n    \"deduplicated_count\": number,\n    \"duplicates_removed\": number,\n    \"merge_groups\": number\n  }\n}",
+        "output_key": "deduplicated_data"
+      }
+    },
+    {
+      "id": "geographic_analysis",
+      "type": "llm_task",
+      "name": "Geographic & Industry Analysis",
+      "description": "Analyze brand mentions for geographic and industry patterns",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0.2,
+        "prompt": "Analyze the deduplicated brands for geographic and industry insights:\n\nBrands: {{deduplicated_data.deduplicated_brands}}\n\nTasks:\n1. Infer geographic regions from brand names (if obvious, e.g., \"London Bank\", \"Tokyo Motors\")\n2. Identify industry sectors (tech, finance, healthcare, retail, etc.) based on company names and context\n3. Identify Fortune 500 or well-known brands\n4. Calculate distribution statistics\n\nReturn JSON:\n{\n  \"geographic_distribution\": {\n    \"north_america\": number,\n    \"europe\": number,\n    \"asia\": number,\n    \"other\": number,\n    \"unknown\": number\n  },\n  \"industry_distribution\": {\n    \"technology\": [],\n    \"finance\": [],\n    \"healthcare\": [],\n    \"retail\": [],\n    \"manufacturing\": [],\n    \"other\": []\n  },\n  \"notable_brands\": [list of Fortune 500 or well-known companies],\n  \"insights\": \"2-3 sentence summary of patterns\"\n}",
+        "output_key": "geographic_analysis"
+      }
+    },
+    {
+      "id": "generate_summary_report",
+      "type": "llm_task",
+      "name": "Generate Executive Summary",
+      "description": "Create comprehensive summary report",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0.3,
+        "prompt": "Create an executive summary report for this market research crawl:\n\nTarget: {{validation_result.normalized_url}}\nCrawl Summary: {{crawl_results.crawl_summary}}\nBrands Found: {{deduplicated_data.deduplicated_brands}}\nGeographic Analysis: {{geographic_analysis}}\n\nCreate a professional report including:\n\n1. EXECUTIVE SUMMARY (2-3 paragraphs)\n2. CRAWL STATISTICS\n   - Pages crawled vs skipped\n   - Total brands discovered\n   - Deduplication results\n3. KEY FINDINGS\n   - Top 10 brands by mention frequency\n   - Distribution by page type\n   - Geographic insights\n   - Industry breakdown\n4. NOTABLE CLIENTS/PARTNERS\n   - Fortune 500 companies\n   - Market leaders\n5. METHODOLOGY NOTES\n   - Crawl parameters used\n   - Limitations encountered\n6. RECOMMENDATIONS\n\nIf NO brands were found, explain:\n- What was scanned\n- Why nothing was found (possible reasons)\n- Suggestions for alternative approaches\n\nReturn JSON with formatted report text and structured data.",
+        "output_key": "executive_summary"
+      }
+    },
+    {
+      "id": "format_json_output",
+      "type": "data_transformer",
+      "name": "Format JSON Output",
+      "description": "Structure final JSON output",
+      "config": {
+        "transformation": {
+          "success": true,
+          "target_url": "{{validation_result.normalized_url}}",
+          "crawl_date": "{{$timestamp}}",
+          "parameters": {
+            "max_pages": "{{max_pages}}",
+            "crawl_depth": "{{crawl_depth}}",
+            "rate_limit_rps": "{{rate_limit_rps}}"
+          },
+          "summary": "{{crawl_results.crawl_summary}}",
+          "brands": "{{deduplicated_data.deduplicated_brands}}",
+          "statistics": {
+            "total_brands": "{{deduplicated_data.deduplication_stats.deduplicated_count}}",
+            "total_mentions": "{{crawl_results.crawl_summary.total_brands_found}}",
+            "pages_crawled": "{{crawl_results.crawl_summary.pages_crawled}}",
+            "pages_skipped": "{{crawl_results.crawl_summary.pages_skipped}}"
+          },
+          "analysis": "{{geographic_analysis}}",
+          "executive_summary": "{{executive_summary}}",
+          "gated_pages": "{{crawl_results.gated_pages}}",
+          "errors": "{{crawl_results.errors}}"
+        },
+        "output_key": "final_json"
+      }
+    },
+    {
+      "id": "generate_csv",
+      "type": "llm_task",
+      "name": "Generate CSV Export",
+      "description": "Convert brand data to CSV format",
+      "config": {
+        "model": "gpt-4",
+        "temperature": 0,
+        "prompt": "Convert the following brand data to CSV format:\n\n{{deduplicated_data.deduplicated_brands}}\n\nCSV Headers:\ncanonical_name,aliases,total_mentions,page_types,confidence_score,source_urls,best_context,first_seen,languages\n\nFormat rules:\n- Escape commas in fields with quotes\n- Join arrays with semicolons\n- Truncate context to 200 chars\n- One brand per row\n\nReturn the CSV content as a string.",
+        "output_key": "csv_content"
+      }
+    },
+    {
+      "id": "store_results",
+      "type": "api_caller",
+      "name": "Store Results in Database",
+      "description": "Optional: Push results to vector DB or metadata store",
+      "config": {
+        "method": "POST",
+        "url": "{{$env.VECTOR_DB_ENDPOINT}}/store",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer {{$env.VECTOR_DB_API_KEY}}"
+        },
+        "body": {
+          "collection": "market_research_brands",
+          "data": "{{deduplicated_data.deduplicated_brands}}",
+          "metadata": {
+            "source_url": "{{validation_result.normalized_url}}",
+            "crawl_date": "{{$timestamp}}",
+            "workflow_execution_id": "{{$executionId}}"
+          }
+        },
+        "optional": true,
+        "handle_errors": true,
+        "output_key": "storage_result"
+      }
+    },
+    {
+      "id": "send_notification",
+      "type": "email_sender",
+      "name": "Send Results Email",
+      "description": "Email the report to stakeholders",
+      "config": {
+        "to": "{{$env.NOTIFICATION_EMAIL}}",
+        "subject": "Market Research Complete: {{validation_result.normalized_url}}",
+        "body": "Market research crawl completed.\n\nTarget: {{validation_result.normalized_url}}\nBrands Found: {{deduplicated_data.deduplication_stats.deduplicated_count}}\nPages Crawled: {{crawl_results.crawl_summary.pages_crawled}}\n\n{{executive_summary}}\n\nFull JSON results attached.\nCSV export attached.",
+        "attachments": [
+          {
+            "filename": "brands_{{$timestamp}}.json",
+            "content": "{{final_json}}",
+            "contentType": "application/json"
+          },
+          {
+            "filename": "brands_{{$timestamp}}.csv",
+            "content": "{{csv_content}}",
+            "contentType": "text/csv"
+          }
+        ],
+        "optional": true,
+        "output_key": "email_result"
+      }
+    },
+    {
+      "id": "complete",
+      "type": "end",
+      "name": "Workflow Complete",
+      "description": "Return final results",
+      "config": {
+        "output": {
+          "success": true,
+          "json_results": "{{final_json}}",
+          "csv_download": "{{csv_content}}",
+          "executive_summary": "{{executive_summary}}",
+          "notification_sent": "{{email_result.success}}"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "start",
+      "target": "validate_input"
+    },
+    {
+      "source": "validate_input",
+      "target": "check_validation"
+    },
+    {
+      "source": "check_validation",
+      "target": "fetch_robots_txt",
+      "condition": "true_path"
+    },
+    {
+      "source": "check_validation",
+      "target": "validation_failed",
+      "condition": "false_path"
+    },
+    {
+      "source": "fetch_robots_txt",
+      "target": "parse_robots_txt"
+    },
+    {
+      "source": "parse_robots_txt",
+      "target": "check_crawl_permission"
+    },
+    {
+      "source": "check_crawl_permission",
+      "target": "fetch_sitemap",
+      "condition": "true_path"
+    },
+    {
+      "source": "check_crawl_permission",
+      "target": "crawl_disallowed",
+      "condition": "false_path"
+    },
+    {
+      "source": "fetch_sitemap",
+      "target": "parse_sitemap"
+    },
+    {
+      "source": "parse_sitemap",
+      "target": "execute_crawl"
+    },
+    {
+      "source": "execute_crawl",
+      "target": "extract_brands"
+    },
+    {
+      "source": "extract_brands",
+      "target": "deduplicate_brands"
+    },
+    {
+      "source": "deduplicate_brands",
+      "target": "geographic_analysis"
+    },
+    {
+      "source": "geographic_analysis",
+      "target": "generate_summary_report"
+    },
+    {
+      "source": "generate_summary_report",
+      "target": "format_json_output"
+    },
+    {
+      "source": "format_json_output",
+      "target": "generate_csv"
+    },
+    {
+      "source": "generate_csv",
+      "target": "store_results"
+    },
+    {
+      "source": "store_results",
+      "target": "send_notification"
+    },
+    {
+      "source": "send_notification",
+      "target": "complete"
+    }
+  ]
+}
